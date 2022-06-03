@@ -56,24 +56,15 @@ async def startup():
     collect_metadata.create_all(sqlalchemy_engine)
 
 
-
 @app.on_event("shutdown")
 async def shutdown():
     await get_database().disconnect()
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
 
 
 app.include_router(dedupte_router, prefix="")
 app.include_router(sanction_router, prefix="")
 app.include_router(disbursement_router, prefix="")
 app.include_router(collect_router, prefix="")
-
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
 
 
 if __name__ == "__main__":
