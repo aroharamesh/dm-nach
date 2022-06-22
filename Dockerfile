@@ -1,25 +1,24 @@
 #
-FROM python:3.9.2-alpine
+FROM python:3.9.0-alpine
 
-#
+# 
 WORKDIR /code
 
-#
+# 
 COPY ./requirements.txt /code/requirements.txt
 
 #
 RUN  apk add build-base
 
-#
+# 
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
-RUN pip install 'uvicorn[standard]'
-RUN pip install fastapi-utils
 
-#
-COPY ./dm_nac_service /code/dm_nac_service
+# 
+COPY ./arthmate_lender_handoff_service /code/arthmate_lender_handoff_service
 
-#
+RUN mkdir -p /code/arthmate_lender_handoff_service/logs/
+
+# 
 #CMD ["uvicorn", "app.post_service:app", "--host", "0.0.0.0", "--port", "80", "--root-path", "/fastapi"]
 
-EXPOSE 3306
-CMD ["uvicorn", "dm_nac_service.main:app", "--host", "0.0.0.0", "--port", "9009"]
+CMD ["uvicorn", "arthmate_lender_handoff_service.main:app", "--host", "0.0.0.0", "--port", "9798"]
