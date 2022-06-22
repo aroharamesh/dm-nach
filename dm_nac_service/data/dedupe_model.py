@@ -59,7 +59,7 @@ dedupe = sqlalchemy.Table(
     "dedupe",
     dedupe_metadata,
     sqlalchemy.Column("id", sqlalchemy.Integer, primary_key=True, autoincrement=True),
-    sqlalchemy.Column("disbursement_reference_id", sqlalchemy.String(length=250), nullable=True),
+    sqlalchemy.Column("dedupe_reference_id", sqlalchemy.String(length=250), nullable=True),
     sqlalchemy.Column("account_number", sqlalchemy.String(length=250), nullable=True),
     sqlalchemy.Column("contact_number", sqlalchemy.String(length=250), nullable=True),
     sqlalchemy.Column("customer_name", sqlalchemy.String(length=250), nullable=True),

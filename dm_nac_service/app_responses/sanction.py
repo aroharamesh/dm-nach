@@ -127,3 +127,19 @@ sanction_response_rejected_server = {
     }
 }
 
+
+sanction_file_upload_response1 = {
+    'status_code': 200,
+    "content": {
+        "message": "File uploaded Successfully : AADHAR_DOC",
+        "status": "SUCCESS"
+    }
+}
+
+sanction_file_upload_response2 = {
+    'status_code': 200,
+    "content": {
+        "message": "File Replaced Successfully : AADHAR_DOC",
+        "status": "SUCCESS"
+    }
+}

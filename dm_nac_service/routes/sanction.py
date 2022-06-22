@@ -14,7 +14,7 @@ from fastapi.exceptions import HTTPException
 from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
 from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_sanction_fileupload, nac_get_sanction
-from dm_nac_service.app_responses.sanction import sanction_request_data, sanction_response_success_data, sanction_response_error_data
+from dm_nac_service.app_responses.sanction import sanction_request_data, sanction_response_success_data, sanction_response_error_data, sanction_file_upload_response1, sanction_file_upload_response2
 from dm_nac_service.data.dedupe_model import (
     dedupe
 )
@@ -52,6 +52,65 @@ async def create_sanction(
             sanction_info = {
                 'customer_id': customer_id,
                 'created_date': store_record_time,
+                'mobile': sanction_dict['mobile'],
+                'first_name': sanction_dict['firstName'],
+                'last_name': sanction_dict['lastName'],
+                'father_name': sanction_dict['fatherName'],
+                'gender': sanction_dict['gender'],
+                'id_proof_type_from_partner': sanction_dict['idProofTypeFromPartner'],
+                'id_proof_number_from_partner': sanction_dict['idProofNumberFromPartner'],
+                'address_proof_type_from_partner': sanction_dict['addressProofTypeFromPartner'],
+                'address_proof_number_from_partner': sanction_dict['addressProofNumberFromPartner'],
+                'dob': sanction_dict['dob'],
+                'owned_vehicle': sanction_dict['ownedVehicle'],
+                'curr_door_and_building': sanction_dict['currDoorAndBuilding'],
+                'curr_street_and_locality': sanction_dict['currStreetAndLocality'],
+                'curr_landmark': sanction_dict['currLandmark'],
+                'curr_city': sanction_dict['currCity'],
+                'curr_district': sanction_dict['currDistrict'],
+                'curr_state': sanction_dict['currState'],
+                'curr_pincode': sanction_dict['currPincode'],
+                'perm_door_and_building': sanction_dict['permDoorAndBuilding'],
+                'perm_city': sanction_dict['permCity'],
+                'perm_district': sanction_dict['permDistrict'],
+                'perm_state': sanction_dict['permState'],
+                'perm_pincode': sanction_dict['permPincode'],
+                'occupation': sanction_dict['occupation'],
+                'company_name': sanction_dict['companyName'],
+                'gross_monthly_income': sanction_dict['grossMonthlyIncome'],
+                'net_monthly_income': sanction_dict['netMonthlyIncome'],
+                'income_validation_status': sanction_dict['incomeValidationStatus'],
+                'pan': sanction_dict['pan'],
+                'purpose_of_loan': sanction_dict['purposeOfLoan'],
+                'loan_amount': sanction_dict['loanAmount'],
+                'interest_rate': sanction_dict['interestRate'],
+                'schedule_start_date': sanction_dict['scheduleStartDate'],
+                'first_installment_date': sanction_dict['firstInstallmentDate'],
+                'total_processing_fees': sanction_dict['totalProcessingFees'],
+                'gst': sanction_dict['gst'],
+                'pre_emi_amount': sanction_dict['preEmiAmount'],
+                'emi': sanction_dict['emi'],
+                'emi_date': sanction_dict['emiDate'],
+                'emi_week': sanction_dict['emiWeek'],
+                'repayment_frequency': sanction_dict['repaymentFrequency'],
+                'repayment_mode': sanction_dict['repaymentMode'],
+                'tenure_value': sanction_dict['tenureValue'],
+                'tenure_units': sanction_dict['tenureUnits'],
+                'product_name': sanction_dict['productName'],
+                'primary_bank_account': sanction_dict['primaryBankAccount'],
+                'bank_name': sanction_dict['bankName'],
+                'mode_of_salary': sanction_dict['modeOfSalary'],
+                'client_id': sanction_dict['clientId'],
+                'dedupe_reference_id': sanction_dict['dedupeReferenceId'],
+                'email': sanction_dict['email'],
+                'middle_name': sanction_dict['middleName'],
+                'marital_status': sanction_dict['maritalStatus'],
+                'loan_id': sanction_dict['loanId'],
+
+
+
+
+
             }
             insert_query = sanction.insert().values(sanction_info)
             print('query', insert_query)
@@ -172,10 +231,14 @@ async def fileupload_sanction(
         with open(file_path + '/' + file_name, 'rb') as a_file:
             print('printing file name ', a_file)
             file_dict = {"file_to_upload.txt": a_file}
-            file_upload_response = requests.post(url, files=file_dict)
-            print('file_upload_response ', file_upload_response.status_code)
-            print('file_upload_response ', file_upload_response.content)
-            if(file_upload_response.status_code!=200):
+            # file_upload_response = requests.post(url, files=file_dict)
+            # print('file_upload_response ', file_upload_response.status_code)
+            # print('file_upload_response ', file_upload_response.content)
+
+            # Fake Response for file upload
+            file_upload_response = sanction_file_upload_response1
+            print(file_upload_response['status_code'])
+            if(file_upload_response['status_code']!=200):
                 log_id = await insert_logs('NAC', 'FUNCTION', 'sanction_fileupload', '403', 'File upload forbidden',
                                            datetime.now())
 

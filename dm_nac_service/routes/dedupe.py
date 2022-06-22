@@ -29,8 +29,10 @@ async def create_dedupe(
         # print('dedupe source - ', dedupe_get_root)
         # Real API response after passing the dedupe data
         dedupe_response = await nac_dedupe('dedupe', dedupe_data)
+        print('dedupe response', dedupe_response)
         store_record_time = datetime.now()
         dedupe_response_id = str(dedupe_response['dedupeReferenceId'])
+        print('dedupe reference id', dedupe_response_id)
         # print('before dedupe_info', dedupe_response['dedupeRequestSource']['dateOfBirth'])
         dedupue_info = {
             'dedupe_reference_id': dedupe_response_id,
