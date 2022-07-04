@@ -1,6 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Data
 from dm_nac_service.data.database import get_database, sqlalchemy_engine
@@ -15,13 +16,13 @@ from dm_nac_service.routes.dedupe import router as dedupte_router
 from dm_nac_service.routes.sanction import router as sanction_router
 from dm_nac_service.routes.disbursement import router as disbursement_router
 from dm_nac_service.routes.collect import router as collect_router
-
+from dm_nac_service.routes.perdix_automator import router as perdix_router
 
 origins = ["*"]
 
 
 app = FastAPI(title="DM-NAC",
-              debug=True,
+              debug=False,
     description='Dvara Money NAC Integration',
     version="0.0.1",
     terms_of_service="http://dvara.com/terms/",
@@ -35,6 +36,7 @@ app = FastAPI(title="DM-NAC",
         "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
     },)
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +67,8 @@ app.include_router(dedupte_router, prefix="")
 app.include_router(sanction_router, prefix="")
 app.include_router(disbursement_router, prefix="")
 app.include_router(collect_router, prefix="")
+app.include_router(perdix_router, prefix="")
+
 
 
 if __name__ == "__main__":
