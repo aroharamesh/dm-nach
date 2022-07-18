@@ -19,7 +19,12 @@ async def nac_dedupe(context, data):
         sector_id = get_env_or_fail(NAC_SERVER, 'sector-id', NAC_SERVER + 'Sector ID not configured')
         url = validate_url + f'/{context}?originatorId={originator_id}&sectorId={sector_id}'
         str_url = str(url)
-        str_data = data.dict()
+        print('3 -  receiving dedupe data from create_dedupe function in gateway', data)
+
+        # Prepared data from model
+        # str_data = data.dict()
+
+
         headers = {
             "API-KEY": api_key,
             "GROUP-KEY": group_key,
@@ -31,24 +36,36 @@ async def nac_dedupe(context, data):
             "Connection": "keep-alive",
         }
 
-        get_root = str_data.get('__root__')
-        str_get_root = str(get_root)
+        # Data Prepared using model
+        # get_root = str_data.get('__root__')
+        # str_get_root = str(get_root)
+
+        # Data Prepared using automator Data
+        get_root = [data]
+        print('4 -  Prepared and posting data for NAC dedupe api', get_root)
 
         dedupe_context_response = requests.post(url, json=get_root, headers=headers)
-
+        print('5 - Response from NAC dedupe api ', dedupe_context_response.status_code, dedupe_context_response.content)
+        # print('printing dedupe context response ', dedupe_context_response.status_code, dedupe_context_response.content)
         if(dedupe_context_response.status_code == 200):
+            log_id = await insert_logs(str_url, 'NAC', str(get_root), dedupe_context_response.status_code,
+                                       dedupe_context_response.content, datetime.now())
             response_content = dedupe_context_response.content
             res = json.loads(response_content.decode('utf-8'))
+
             dedupe_context_response_id = res[0]['dedupeReferenceId']
             # result = dedupe_context_response_id
+            print('6 - Sending Back the dedupe reference Id to create_dedupe function', res[0]['dedupeReferenceId'])
             result = res[0]
         else:
             dedupe_context_dict = response_to_dict(dedupe_context_response)
-            log_id = await insert_logs('NAC', 'NAC', get_root, dedupe_context_response.status_code,
-                                   dedupe_context_dict, datetime.now())
+            log_id = await insert_logs(str_url, 'NAC', str(get_root), dedupe_context_response.status_code,
+                                       dedupe_context_response.content, datetime.now())
             result = {"error": "Error Creating the Dedupe"}
     except Exception as e:
-        log_id = await insert_logs('NAC', 'NAC', str_get_root, dedupe_context_response.status_code, dedupe_context_response.content, datetime.now())
+        log_id = await insert_logs(str_url, 'NAC', str(get_root), dedupe_context_response.status_code,
+                                   dedupe_context_response.content, datetime.now())
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
 
     return result
+
