@@ -328,8 +328,12 @@ async def post_sanction_automator_data(
         print('printing referece id ', reference_id)
         message_remarks = 'testing '
 
-        update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
-                                             'PROCEED', message_remarks)
+        # To Update Perdix with Sanction Reference ID
+        # update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
+        #                                      'PROCEED', message_remarks)
+
+
+
         payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
         payload['partnerHandoffIntegration']['partnerReferenceKey'] = reference_id
         # print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
@@ -507,6 +511,8 @@ async def update_sanction_in_db():
         for i in sanction_array:
             print(i[1])
             customer_id = i[1]
+            sm_loan_id = i[61]
+            print('loan ID is ', sm_loan_id)
             response_sanction_status = await nac_get_sanction('status', i[1])
 
             # Rejected Scenario
@@ -524,9 +530,11 @@ async def update_sanction_in_db():
             sanction_status = response_sanction_status['content']['status']
 
             if(sanction_status == 'SUCCESS'):
+                print('inside SUCCESS')
                 sanction_status_value = response_sanction_status['content']['value']
                 sanction_status_value_status = response_sanction_status['content']['value']['status']
                 if(sanction_status_value_status == 'ELIGIBLE'):
+                    print('inside ELIGIBLE')
                     sanction_status_value_reference_id = response_sanction_status['content']['value']['sanctionReferenceId']
                     sanction_status_value_bureau_fetch = response_sanction_status['content']['value']['bureauFetchStatus']
                     print('coming here', sanction_status_value_reference_id , sanction_status_value_bureau_fetch)
@@ -536,22 +544,29 @@ async def update_sanction_in_db():
                         sanctin_ref_id=sanction_status_value_reference_id,
                         bureau_fetch_status=sanction_status_value_bureau_fetch)
                     sanction_updated = await database.execute(query)
+                    update_loan_info = await update_loan('SANCTION', sm_loan_id, sanction_status_value_reference_id, 'Dedupe',
+                                                         sanction_status_value_bureau_fetch,
+                                                         'PROCEED', sanction_status_value_bureau_fetch)
                 elif(sanction_status_value_status == 'REJECTED'):
-
+                    print('inside REJECTED')
                     sanction_status_value_stage = response_sanction_status['content']['value'][
                         'stage']
                     sanction_status_value_bureau_fetch = response_sanction_status['content']['value'][
                         'bureauFetchStatus']
                     if(sanction_status_value_stage == 'BUREAU_FETCH'):
-                        print('coming here')
+                        print('inside BUREAU_FETCH')
 
                         query = sanction.update().where(sanction.c.customer_id == customer_id).values(
                             status=sanction_status_value_status,
                             stage=sanction_status_value_stage,
                             bureau_fetch_status=sanction_status_value_bureau_fetch)
                         sanction_updated = await database.execute(query)
+                        update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
+                                                             'Rejected',
+                                                             sanction_status_value_bureau_fetch,
+                                                             'PROCEED', sanction_status_value_bureau_fetch)
                     else:
-
+                        print('inside else BUREAU_FETCH')
                         sanction_status_value_reject_reason = str(response_sanction_status['content']['value'][
                             'rejectReason'])
                         print(sanction_status_value_reject_reason)
@@ -561,7 +576,12 @@ async def update_sanction_in_db():
                             reject_reason=sanction_status_value_reject_reason,
                             bureau_fetch_status=sanction_status_value_bureau_fetch)
                         sanction_updated = await database.execute(query)
+                        update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
+                                                             'Rejected',
+                                                             sanction_status_value_reject_reason,
+                                                             'PROCEED', sanction_status_value_reject_reason)
                 else:
+                    print('inside else not eligible')
                     sanction_status_value_stage = response_sanction_status['content']['value'][
                         'stage']
                     sanction_status_value_bureau_fetch = response_sanction_status['content']['value'][
@@ -571,6 +591,12 @@ async def update_sanction_in_db():
                                                                                           # reject_reason=rejectReason,
                                                                                           bureau_fetch_status=sanction_status_value_bureau_fetch)
                     sanction_updated = await database.execute(query)
+                    update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
+                                                         'Dedupe',
+                                                         sanction_status_value_bureau_fetch,
+                                                         'PROCEED', sanction_status_value_bureau_fetch)
+
+
             # return customer_updated
 
             # print(response_sanction_status)
