@@ -67,6 +67,7 @@ async def find_sanction(
         result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
     return result
 
+
 @router.post("/sanction", tags=["Sanction"])
 async def create_sanction(
     # sanction_data: CreateSanction,
@@ -174,6 +175,7 @@ async def create_sanction(
             print('5 - Saved Sanction information to DB', sanction_info)
             result = JSONResponse(status_code=200, content={"customerid": sanction_response})
             print('6 - Update customer id to udf42 in Perdix', sanction_info)
+
             return result
 
             # result = sanction_info
@@ -352,4 +354,35 @@ async def sanction_status(
         result = JSONResponse(status_code=500,
                               content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
         print(e.args[0])
+    return result
+
+
+async def find_loan_id_from_sanction(
+        sanction_ref_id
+):
+    try:
+        # print('selecting loan id')
+        database = get_database()
+        select_query = sanction.select().where(sanction.c.sanctin_ref_id == sanction_ref_id).order_by(sanction.c.id.desc())
+        # print('loan query', select_query)
+        raw_sanction = await database.fetch_one(select_query)
+        sanction_dict = {
+            # "customerId": raw_dedupe[1],
+            # "isEligible": raw_dedupe[18],
+            # "isEl1igible": "True",
+            "loanID": raw_sanction[61]
+        }
+        print( '*********************************** SUCCESSFULLY FETCHED LOAN ID BY SANCTION REF ID FROM DB  ***********************************')
+        # result = raw_dedupe[1]
+        result = sanction_dict
+        # if raw_sanction is None:
+        #     return None
+
+        # return DedupeDB(**raw_dedupe)
+    except Exception as e:
+        print(
+            '*********************************** FAILURE FETCHING LOAN ID BY SANCTION REF ID FROM DB  ***********************************')
+        log_id = await insert_logs('MYSQL', 'DB', 'find_dedupe', '500', {e.args[0]},
+                                   datetime.now())
+        result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
     return result

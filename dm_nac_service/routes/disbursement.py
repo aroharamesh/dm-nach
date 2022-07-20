@@ -25,23 +25,60 @@ from dm_nac_service.data.disbursement_model import (
     CreateDisbursement
 )
 
+from dm_nac_service.data.sanction_model import (
+sanction
+)
+
 router = APIRouter()
 
 
-async def get_sanction_or_404(
-    sanction_reference_id: int
-) -> DisbursementDB:
-    database = get_database()
-    # print('getting inside get_disbursement_or_404')
-    select_query = disbursement.select().where(disbursement.c.sanction_reference_id == sanction_reference_id)
-    # print('printing the sql query ', select_query)
-    raw_disbursement = await database.fetch_one(select_query)
-    # print(raw_disbursement)
+# async def get_sanction_or_404(
+#     sanction_reference_id: int
+# ) -> DisbursementDB:
+#     database = get_database()
+#     # print('getting inside get_disbursement_or_404')
+#     select_query = disbursement.select().where(disbursement.c.sanction_reference_id == sanction_reference_id)
+#     # print('printing the sql query ', select_query)
+#     raw_disbursement = await database.fetch_one(select_query)
+#     # print(raw_disbursement)
+#
+#     if raw_disbursement is None:
+#         return None
+#
+#     return DisbursementDB(**raw_disbursement)
 
-    if raw_disbursement is None:
-        return None
 
-    return DisbursementDB(**raw_disbursement)
+@router.post("/find-customer-sanction", tags=["Sanction"])
+async def find_customer_sanction(
+        loan_id
+):
+    try:
+        # print('selecting loan id')
+        database = get_database()
+        select_query = sanction.select().where(sanction.c.loan_id == loan_id).order_by(sanction.c.id.desc())
+        # print('loan query', select_query)
+        raw_sanction = await database.fetch_one(select_query)
+        sanction_dict = {
+            "customerId": raw_sanction[1],
+            # "isEligible": raw_dedupe[18],
+            # "isEl1igible": "True",
+            # "dedupeRefId": raw_sanction[57],
+            "sanctionRefId": raw_sanction[2]
+        }
+        print( '*********************************** SUCCESSFULLY FETCHED CUSTOMER ID AND SANCTION REFERENCE ID FROM DB  ***********************************')
+        # result = raw_dedupe[1]
+        result = sanction_dict
+        if raw_sanction is None:
+            return None
+
+        # return DedupeDB(**raw_dedupe)
+    except Exception as e:
+        print(
+            '*********************************** FAILURE FETCHING CUSTOMER ID AND SANCTION REFERENCE ID FROM DB  ***********************************')
+        log_id = await insert_logs('MYSQL', 'DB', 'find_customer_sanction', '500', {e.args[0]},
+                                   datetime.now())
+        result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
+    return result
 
 
 async def get_disbursement_or_404(
@@ -62,14 +99,20 @@ async def get_disbursement_or_404(
 
 @router.post("/disbursement", tags=["Disbursement"])
 async def create_disbursement(
-    disbursement_data: CreateDisbursement, database: Database = Depends(get_database)
+    # disbursement_data: CreateDisbursement,
+    disbursement_data
+    # database: Database = Depends(get_database)
 ):
     try:
-        disbursement_data_dict = disbursement_data.dict()
+        database = get_database()
+        # disbursement_data_dict = disbursement_data.dict()
+
+        disbursement_data_dict = disbursement_data
         # print('printing the disbursment', disbursement_data)
         sanction_reference_id = disbursement_data_dict['sanctionReferenceId']
 
         disbursement_response = await nac_disbursement('disbursement', disbursement_data_dict)
+        print('response from disburmsent info', disbursement_response)
 
         disbursement_response_status = disbursement_response['content']['status']
         disbursement_response_message = disbursement_response['content']['message']
@@ -91,21 +134,26 @@ async def create_disbursement(
             disbursement_info['message'] = disbursement_response_message
             disbursement_info['status'] = disbursement_response_status
             disbursement_info['disbursement_reference_id'] = disbursement_response['content']['value']['disbursementReferenceId']
+            insert_query = disbursement.insert().values(disbursement_info)
+            # print('query', insert_query)
+            disbursement_id = await database.execute(insert_query)
+
         else:
             disbursement_info['message'] = disbursement_response_message
             disbursement_info['status'] = disbursement_response_status
 
-        get_sanction_from_db = await get_sanction_or_404(sanction_reference_id)
+        # get_sanction_from_db = await get_sanction_or_404(sanction_reference_id)
         # print('get_disbursement_from_db', get_disbursement_from_db)
 
-        if(get_sanction_from_db is None):
-            insert_query = disbursement.insert().values(disbursement_info)
-            # print('query', insert_query)
-            disbursement_id = await database.execute(insert_query)
-        else:
-            result = JSONResponse(status_code=500, content={"message": f"{sanction_reference_id} is already present"})
+        # if(get_sanction_from_db is None):
+        #     insert_query = disbursement.insert().values(disbursement_info)
+        #     # print('query', insert_query)
+        #     disbursement_id = await database.execute(insert_query)
+        # else:
+        #     result = JSONResponse(status_code=500, content={"message": f"{sanction_reference_id} is already present"})
 
         result = disbursement_response
+        print('SUCCESSFULLY COMING OUT OF CREATE DISBURSEMENT ', result)
     except Exception as e:
         log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', 'Error Occurred at DB level',
                                    datetime.now())
@@ -115,62 +163,62 @@ async def create_disbursement(
 
 @router.get("/disbursement-status", tags=["Disbursement"])
 async def get_disbursement_status(
-    disbursement_reference_id: int, database: Database = Depends(get_database)
+    disbursement_reference_id, database: Database = Depends(get_database)
 ):
     try:
         print('coming inside of disbursement status', disbursement_reference_id)
-        get_disbursement_from_db = await get_disbursement_or_404(disbursement_reference_id)
+        # get_disbursement_from_db = await get_disbursement_or_404(disbursement_reference_id)
 
-        print('printing get_disbursement_from_db', get_disbursement_from_db)
+        # print('printing get_disbursement_from_db', get_disbursement_from_db)
         disbursement_status_response = await disbursement_get_status('disbursement', disbursement_reference_id)
-        if(get_disbursement_from_db is not None):
-            print('get_disbursement_from_db')
-            disbursement_status_response_error = disbursement_status_response.get('error')
-            if(not disbursement_status_response_error):
-                print('disbursement_status_response_error')
-                disbursement_status_response_status = disbursement_status_response['content']['status']
-                if(disbursement_status_response_status=='SUCCESS'):
-                    print('disbursement_status_response_status')
-                    disbursement_status_response_stage = disbursement_status_response['content']['value']['stage']
-                    disbursement_status_response_dis_status = disbursement_status_response['content']['value']['disbursementStatus']
-                    disbursement_status_response_utr = disbursement_status_response.get('content').get('value').get('utr')
-                    if(not disbursement_status_response_utr):
-                        query = disbursement.update().where(disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-                                                                                                             disbursement_status=disbursement_status_response_dis_status,
-                                                                                                             stage=disbursement_status_response_stage,
-                                                                                                            status="",
-                                                                                                            message="")
-                        customer_updated = await database.execute(query)
-                    else:
-                        query = disbursement.update().where(
-                            disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-                            utr=disbursement_status_response_utr,
-                            disbursement_status=disbursement_status_response_dis_status,
-                            stage=disbursement_status_response_stage)
-                        customer_updated = await database.execute(query)
-                else:
-                    print('else disbursement_status_response_status error')
-                    disbursement_status_response_message = disbursement_status_response.get('content').get('message')
-                    if(not disbursement_status_response_message):
-                        print('not disbursement_status_response_message')
-                        disbursement_status_response_stage = disbursement_status_response.get('content').get('value').get('stage')
-                        disbursement_status_response_status = disbursement_status_response.get('content').get('value').get('status')
-                        query = disbursement.update().where(
-                            disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-                            stage=disbursement_status_response_stage,
-                        disbursement_status =disbursement_status_response_status)
-                        customer_updated = await database.execute(query)
-                    else:
-                        print('message not found')
-            else:
-
-                disbursement_status_response_status = disbursement_status_response['status']
-                disbursement_status_response_message = disbursement_status_response['error']
-                query = disbursement.update().where(
-                    disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-                    message=disbursement_status_response_message,
-                    status=disbursement_status_response_status)
-                customer_updated = await database.execute(query)
+        # if(get_disbursement_from_db is not None):
+        #     print('get_disbursement_from_db')
+        #     disbursement_status_response_error = disbursement_status_response.get('error')
+        #     if(not disbursement_status_response_error):
+        #         print('disbursement_status_response_error')
+        #         disbursement_status_response_status = disbursement_status_response['content']['status']
+        #         if(disbursement_status_response_status=='SUCCESS'):
+        #             print('disbursement_status_response_status')
+        #             disbursement_status_response_stage = disbursement_status_response['content']['value']['stage']
+        #             disbursement_status_response_dis_status = disbursement_status_response['content']['value']['disbursementStatus']
+        #             disbursement_status_response_utr = disbursement_status_response.get('content').get('value').get('utr')
+        #             if(not disbursement_status_response_utr):
+        #                 query = disbursement.update().where(disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
+        #                                                                                                      disbursement_status=disbursement_status_response_dis_status,
+        #                                                                                                      stage=disbursement_status_response_stage,
+        #                                                                                                     status="",
+        #                                                                                                     message="")
+        #                 customer_updated = await database.execute(query)
+        #             else:
+        #                 query = disbursement.update().where(
+        #                     disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
+        #                     utr=disbursement_status_response_utr,
+        #                     disbursement_status=disbursement_status_response_dis_status,
+        #                     stage=disbursement_status_response_stage)
+        #                 customer_updated = await database.execute(query)
+        #         else:
+        #             print('else disbursement_status_response_status error')
+        #             disbursement_status_response_message = disbursement_status_response.get('content').get('message')
+        #             if(not disbursement_status_response_message):
+        #                 print('not disbursement_status_response_message')
+        #                 disbursement_status_response_stage = disbursement_status_response.get('content').get('value').get('stage')
+        #                 disbursement_status_response_status = disbursement_status_response.get('content').get('value').get('status')
+        #                 query = disbursement.update().where(
+        #                     disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
+        #                     stage=disbursement_status_response_stage,
+        #                 disbursement_status =disbursement_status_response_status)
+        #                 customer_updated = await database.execute(query)
+        #             else:
+        #                 print('message not found')
+        #     else:
+        #
+        #         disbursement_status_response_status = disbursement_status_response['status']
+        #         disbursement_status_response_message = disbursement_status_response['error']
+        #         query = disbursement.update().where(
+        #             disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
+        #             message=disbursement_status_response_message,
+        #             status=disbursement_status_response_status)
+        #         customer_updated = await database.execute(query)
 
 
         # print('get_disbursement_status ', get_disbursement_status)

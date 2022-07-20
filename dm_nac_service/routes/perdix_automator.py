@@ -8,13 +8,19 @@ from dm_nac_service.routes.dedupe import create_dedupe, find_dedupe
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
 from dm_nac_service.gateway.nac_perdix_automator import perdix_post_login, perdix_fetch_loan, perdix_update_loan
 from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_get_sanction
-from dm_nac_service.routes.sanction import create_sanction, find_sanction, sanction_status
+from dm_nac_service.routes.sanction import create_sanction, find_sanction, sanction_status, find_loan_id_from_sanction
 from dm_nac_service.resource.generics import response_to_dict
 from dm_nac_service.data.sanction_model import sanction
-
+from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.app_responses.sanction import sanction_response_rejected_server, sanction_response_eligible, sanction_response_rejected_bureau, sanction_response_rejected_bre
-
+from dm_nac_service.routes.disbursement import find_customer_sanction, create_disbursement
+from dm_nac_service.gateway.nac_disbursement import nac_disbursement, disbursement_get_status
+from dm_nac_service.data.disbursement_model import (disbursement)
+from dm_nac_service.data.sanction_model import (sanction)
 router = APIRouter()
+
+
+NAC_SERVER = 'northernarc-server'
 
 
 @router.post("/nac-dedupe-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
@@ -329,8 +335,8 @@ async def post_sanction_automator_data(
         message_remarks = 'testing '
 
         # To Update Perdix with Sanction Reference ID
-        # update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
-        #                                      'PROCEED', message_remarks)
+        update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
+                                             'PROCEED', message_remarks)
 
 
 
@@ -347,6 +353,120 @@ async def post_sanction_automator_data(
     except Exception as e:
         print(e)
 
+
+@router.post("/nac-disbursement-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
+async def post_disbursement_automator_data(
+    # request_info: Request,
+    # response: Response
+    # Below is to test manually by providing json data in request body
+    request_info: dict = Body(...),
+):
+    try:
+        database = get_database()
+        # print("coming inside prepare sanction data")
+        # payload = await request_info.json()
+
+        # Below is for data published manually
+        payload = request_info
+        print('nac-disbursement-automator-data')
+        customer_data = payload["enrollmentDTO"]["customer"]
+        loan_data = payload["loanDTO"]["loanAccount"]
+        sm_loan_id = loan_data.get("id", "SML00253011")
+        requested_amount = loan_data.get("loanAmountRequested", 2000.0)
+        bank_accounts_info = {}
+        if len(customer_data["customerBankAccounts"]) > 0:
+            bank_accounts_info = customer_data["customerBankAccounts"][0]
+        ifsc_code = bank_accounts_info.get("ifscCode", "abc")
+        branch_name = bank_accounts_info.get("customerBankBranchName", "Chennai")
+        insurance_fee = loan_data.get("", 0.0)
+        processing_fee = loan_data.get("processingFeeInPaisa", 10.0)
+        disbursement_date = loan_data.get("", "2022-03-10")
+        print('1 - Fetch customer Id and Sanction Reference Id from DB', sm_loan_id)
+        customer_sanction_response = await find_customer_sanction(sm_loan_id)
+        sanction_ref_id = customer_sanction_response['sanctionRefId']
+        customer_id = customer_sanction_response['customerId']
+        print('2 - Response from DB with customer id and sanction ref id', customer_sanction_response)
+        originator_id = get_env_or_fail(NAC_SERVER, 'originator-id', NAC_SERVER + 'originator ID not configured')
+        print('3 - Originator ID from env', originator_id)
+
+        disbursement_info = {
+            "originatorId": originator_id,
+            "sanctionReferenceId": int(sanction_ref_id),
+            "customerId": int(customer_id),
+            "requestedAmount": requested_amount,
+            "ifscCode": ifsc_code,
+            "branchName": branch_name,
+            "processingFees": processing_fee,
+            "insuranceAmount": insurance_fee,
+            "disbursementDate": disbursement_date
+        }
+        store_record_time = datetime.now()
+        disbursement_db_info = {
+            'customer_id': customer_id,
+            'originator_id': originator_id,
+            'sanction_reference_id': sanction_ref_id,
+            'requested_amount': requested_amount,
+            'ifsc_code': ifsc_code,
+            'branch_name': branch_name,
+            'processing_fees': processing_fee,
+            'insurance_amount': insurance_fee,
+            'disbursement_date': disbursement_date,
+            'created_date': store_record_time,
+        }
+        print('4 - Data Prepared to post to NAC disbursement endpoint', disbursement_info)
+        # Real Endpoint
+        nac_disbursement_response = await create_disbursement(disbursement_info)
+        print('5 - Response from NAC disbursement endpoint', nac_disbursement_response)
+        disbursement_status = nac_disbursement_response['content']['status']
+        if(disbursement_status == 'SUCCESS'):
+            disbursement_message = nac_disbursement_response['content']['message']
+            disbursement_reference_id = nac_disbursement_response['content']['value']['disbursementReferenceId']
+            payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
+            payload['partnerHandoffIntegration']['partnerReferenceKey'] = disbursement_reference_id
+            update_loan_info = await update_loan('DISBURSEMENT', sm_loan_id, disbursement_reference_id, 'Dedupe', disbursement_message,
+                                                 'PROCEED', disbursement_message)
+
+
+        # disbursement_response_message = nac_disbursement_response['content']['message']
+        # disbursement_response_status = nac_disbursement_response['content']['status']
+        # if (disbursement_response_status == 'SUCCESS'):
+        #     disbursement_info['message'] = disbursement_response_message
+        #     disbursement_info['status'] = disbursement_response_status
+        #     disbursement_info['disbursement_reference_id'] = nac_disbursement_response['content']['value'][
+        #         'disbursementReferenceId']
+        #     disbursement_ref_id = nac_disbursement_response['content']['value'][
+        #         'disbursementReferenceId']
+        #     disbursement_db_info['message'] = disbursement_response_message
+        #     disbursement_db_info['status'] = disbursement_response_status
+        #     disbursement_db_info['disbursement_reference_id'] = nac_disbursement_response['content']['value'][
+        #         'disbursementReferenceId']
+        #     payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
+        #     payload['partnerHandoffIntegration']['partnerReferenceKey'] = disbursement_ref_id
+        #
+        #     insert_query = disbursement.insert().values(disbursement_db_info)
+        #     # print('query', insert_query)
+        #     disbursement_id = await database.execute(insert_query)
+        # else:
+        #     disbursement_info['message'] = disbursement_response_message
+        #     disbursement_info['status'] = disbursement_response_status
+
+        # get_sanction_from_db = await get_sanction_or_404(sanction_reference_id)
+        # print('get_disbursement_from_db', get_disbursement_from_db)
+
+        # if (get_sanction_from_db is None):
+        #     insert_query = disbursement.insert().values(disbursement_info)
+        #     # print('query', insert_query)
+        #     disbursement_id = await database.execute(insert_query)
+        # else:
+        #     result = JSONResponse(status_code=500, content={"message": f"{sanction_reference_id} is already present"})
+
+
+
+
+        # result = {"function": "nac-disbursement-automator-data"}
+        return payload
+    except Exception as e:
+        print(e)
 
 
 @router.get("/perdix/{loan_id}", status_code=status.HTTP_200_OK, tags=["Perdix"])
@@ -416,8 +536,8 @@ async def update_loan(
             # }
             get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf41'] = reference_id
 
-            print('dedupe', get_loan_info)
-        if (url_type == 'SANCTION'):
+            # print('dedupe', get_loan_info)
+        if(url_type == 'SANCTION'):
             # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
             #     'udf42': reference_id
             #     # 'udf42': "5211201547885960"
@@ -431,7 +551,52 @@ async def update_loan(
             #     }
             # }
             get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf42'] = reference_id
-            print('sanction', get_loan_info)
+            # print('sanction', get_loan_info)
+        if(url_type == 'SANCTION-REFERENCE'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf43'] = reference_id
+            # print('sanction', get_loan_info)
+        if(url_type == 'DISBURSEMENT'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf44'] = reference_id
+            # print('sanction', get_loan_info)
+        if (url_type == 'DISBURSEMENT-ITR'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf45'] = reference_id
+            # print('sanction', get_loan_info)
     # if "version" in get_loan_info:
     #     get_loan_info['version'] = json_data_version + 2
 
@@ -513,13 +678,13 @@ async def update_sanction_in_db():
             customer_id = i[1]
             sm_loan_id = i[61]
             print('loan ID is ', sm_loan_id)
-            response_sanction_status = await nac_get_sanction('status', i[1])
+            # response_sanction_status = await nac_get_sanction('status', i[1])
 
             # Rejected Scenario
             # response_sanction_status = sanction_response_rejected_server
 
             # Sanction Reference ID Scenario
-            # response_sanction_status = sanction_response_eligible
+            response_sanction_status = sanction_response_eligible
 
             # Sanction Reference ID Reject Reason
             # response_sanction_status = sanction_response_rejected_bre
@@ -544,7 +709,7 @@ async def update_sanction_in_db():
                         sanctin_ref_id=sanction_status_value_reference_id,
                         bureau_fetch_status=sanction_status_value_bureau_fetch)
                     sanction_updated = await database.execute(query)
-                    update_loan_info = await update_loan('SANCTION', sm_loan_id, sanction_status_value_reference_id, 'Dedupe',
+                    update_loan_info = await update_loan('SANCTION-REFERENCE', sm_loan_id, sanction_status_value_reference_id, 'Dedupe',
                                                          sanction_status_value_bureau_fetch,
                                                          'PROCEED', sanction_status_value_bureau_fetch)
                 elif(sanction_status_value_status == 'REJECTED'):
@@ -617,6 +782,94 @@ async def update_sanction_in_db():
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at DB level - {e.args[0]}"})
 
 
+
+@router.post("/disbursement/update-disbursement-in-db", tags=["Perdix"])
+async def update_disbursement_in_db():
+    try:
+        database = get_database()
+        print('coming inside update_disbursement_in_db ')
+        # query = sanction.select().where(and_(perdix_customer.c.pending.is_(True), perdix_customer.c.iterations<=iterations_count))
+        query = disbursement.select()
+        service_disbursement_array = await database.fetch_all(query)
+        print('get_pending_sanctions ', service_disbursement_array)
+        array_length = len(service_disbursement_array)
+        disbursement_array = service_disbursement_array
+        result = {"function": "update_disbursement_in_db"}
+        for i in disbursement_array:
+            # print(i[1])
+            disbursement_ref_id = i[1]
+            sanction_ref_id = i[8]
+            # query = sanction.select().where(sanction.c.sanctin_ref_id == sanction_ref_id)
+            # disbursement_sanction_id = await database.fetch_one(query)
+            disbursement_sanction_id = await find_loan_id_from_sanction(sanction_ref_id)
+            disb_sanc_data = disbursement_sanction_id
+            print('loan id from disbursement', disb_sanc_data.get('loanID'), sanction_ref_id)
+            sm_loan_id = disb_sanc_data.get('loanID')
+            # print('disbursement_ref_id ID is ', disbursement_ref_id)
+            get_disbursement_response = await disbursement_get_status('disbursement', disbursement_ref_id)
+            print('disbursement response ', get_disbursement_response)
+            get_disbursement_response_content = get_disbursement_response['content']
+            get_disbursement_response_status = get_disbursement_response['content']['status']
+            print('disbursement response status - ', get_disbursement_response_status)
+            if(get_disbursement_response_status == 'SUCCESS'):
+                get_disbursement_response_stage = get_disbursement_response['content']['value']['stage']
+                print('disbursement response stage -', get_disbursement_response_stage)
+                if(get_disbursement_response_stage == 'AMOUNT_DISBURSEMENT'):
+                    get_disbursement_response_utr = get_disbursement_response['content']['value']['utr']
+                    get_disbursement_response_disbursement_status = get_disbursement_response['content']['value']['disbursementStatus']
+                    query = disbursement.update().where(disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                        status=get_disbursement_response_status,
+                        stage=get_disbursement_response_stage,
+                        disbursement_status=get_disbursement_response_disbursement_status,
+                        message='',
+                        utr=get_disbursement_response_utr)
+                    disbursement_updated = await database.execute(query)
+                    update_loan_info = await update_loan('DISBURSEMENT-ITR', sm_loan_id,
+                                                         get_disbursement_response_utr, 'Dedupe',
+                                                         get_disbursement_response_disbursement_status,
+                                                         'PROCEED', get_disbursement_response_disbursement_status)
+                    print('disbursement response AMOUNT_DISBURSEMENT -', get_disbursement_response_utr, get_disbursement_response_disbursement_status)
+                else:
+                    get_disbursement_response_disbursement_status = get_disbursement_response['content']['value']['disbursementStatus']
+                    query = disbursement.update().where(
+                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                        status=get_disbursement_response_status,
+                        stage=get_disbursement_response_stage,
+                        disbursement_status=get_disbursement_response_disbursement_status,
+                        message='',
+                        utr='')
+                    disbursement_updated = await database.execute(query)
+                    print('disbursement response AMOUNT_DISBURSEMENT -', get_disbursement_response_disbursement_status)
+            else:
+                if("value" in get_disbursement_response_content):
+
+                    get_disbursement_response_stage = get_disbursement_response['content']['value']['stage']
+                    get_disbursement_response_value_status = get_disbursement_response['content']['value']['status']
+                    query = disbursement.update().where(
+                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                        status=get_disbursement_response_status,
+                        stage=get_disbursement_response_stage,
+                        disbursement_status=get_disbursement_response_value_status,
+                        message='',
+                        utr='')
+                    disbursement_updated = await database.execute(query)
+                    print('yes value is there', get_disbursement_response_stage, get_disbursement_response_value_status )
+                else:
+                    get_disbursement_response_message = get_disbursement_response['content']['message']
+                    query = disbursement.update().where(
+                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                        status=get_disbursement_response_status,
+                        stage='',
+                        disbursement_status='',
+                        message=get_disbursement_response_message,
+                        utr='')
+                    disbursement_updated = await database.execute(query)
+                    print(' value is not there', get_disbursement_response_message)
+        return disbursement_array
+    except Exception as e:
+        log_id = await insert_logs('MYSQL', 'DB', 'GET-PENDING-CUSTOMERS', '500', {e.args[0]},
+                                   datetime.now())
+        result = JSONResponse(status_code=500, content={"message": f"Error Occurred at DB level - {e.args[0]}"})
 # @router.post("/nac-sanction-status", status_code=status.HTTP_200_OK, tags=["Perdix"])
 # async def pending_mandate_status(x_token: str = Depends(get_token_header), database: Database = Depends(get_database)
 #                                  ):
