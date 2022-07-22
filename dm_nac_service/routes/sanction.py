@@ -4,6 +4,7 @@ import shutil
 
 import requests
 import os
+import urllib.request
 
 from fastapi import APIRouter, Depends, status, File, UploadFile, Form, Query
 from fastapi.responses import JSONResponse
@@ -30,6 +31,7 @@ from dm_nac_service.data.sanction_model import (
 )
 
 NAC_SERVER = 'northernarc-server'
+PERDIX_SERVER = 'perdix-server'
 
 FILE_CHOICES = ['SELFIE', 'AADHAR_XML', 'MITC', 'VOTER_CARD', 'DRIVING_LICENSE', 'SANCTION_LETTER', 'PAN', 'PASSPORT', 'AADHAR_DOC', 'LOAN_APPLICATION', 'LOAN_AGREEMENT']
 
@@ -272,7 +274,13 @@ async def fileupload_sanction(
         group_key = get_env_or_fail(NAC_SERVER, 'group-key', NAC_SERVER + ' group-key not configured')
         originator_id = get_env_or_fail(NAC_SERVER, 'originator-id', NAC_SERVER + 'originator ID not configured')
         sector_id = get_env_or_fail(NAC_SERVER, 'sector-id', NAC_SERVER + 'Sector ID not configured')
+        file_stream_url = get_env_or_fail(PERDIX_SERVER, 'perdix-stream-url', PERDIX_SERVER + 'Stream URL is not configured')
         url = validate_url + f'/po/uploadFile?originatorId={originator_id}&fileType={file_type}&customerId={customer_id}'
+        image_id = '94d150e4-6232-4f5e-a341-494d76c5c4bf'
+        file_url = file_stream_url + image_id
+        tmp_file = "./static/" + image_id
+        print('priting temporary file', tmp_file)
+        urllib.request.urlretrieve(file_url, tmp_file)
         print('file url ', url)
         # files = {'file': open(file, 'rb')}
         file_name = file.filename
@@ -282,21 +290,28 @@ async def fileupload_sanction(
         with open('test', "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             shutil.copyfile('test', file_path + '/' + file_name)
+            # shutil.copyfile('test', file_path + '/' + image_id)
             if not os.path.exists(file_path + 'test'):
+            # if not os.path.exists(file_path + image_id):
                 print('yes there is a file')
                 os.remove(file_path + '/' + 'test')
+                # os.remove(file_path + '/' + image_id)
                 shutil.move('test', file_path)
+                # shutil.move(image_id, file_path)
             else:
                 shutil.move('test', file_path)
+                # shutil.move(image_id, file_path)
+        print('before opening the file')
         with open(file_path + '/' + file_name, 'rb') as a_file:
             print('printing file name ', a_file)
             file_dict = {"file_to_upload.txt": a_file}
-            # file_upload_response = requests.post(url, files=file_dict)
-            # print('file_upload_response ', file_upload_response.status_code)
-            # print('file_upload_response ', file_upload_response.content)
+            file_upload_response = requests.post(url, files=file_dict)
+            print('file_upload_response ', file_upload_response.status_code)
+            print('file_upload_response ', file_upload_response.content)
+
 
             # Fake Response for file upload
-            file_upload_response = sanction_file_upload_response1
+            # file_upload_response = sanction_file_upload_response1
             print(file_upload_response['status_code'])
             if(file_upload_response['status_code']!=200):
                 log_id = await insert_logs('NAC', 'FUNCTION', 'sanction_fileupload', '403', 'File upload forbidden',
@@ -317,6 +332,8 @@ async def fileupload_sanction(
                 print('query', insert_query)
         # str_url = str(url)
         # str_data = data.dict()
+        log_id = await insert_logs(str(url), 'NAC', str(file_dict), file_upload_response.status_code,
+                                   file_upload_response.content, datetime.now())
         result = {"customer_id": customer_id, "file_size": file, "choice": file_type}
     except Exception as e:
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})

@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from fastapi import APIRouter, Depends, status, Request, Response, Body
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from dm_nac_service.routes.dedupe import create_dedupe, find_dedupe
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
 from dm_nac_service.gateway.nac_perdix_automator import perdix_post_login, perdix_fetch_loan, perdix_update_loan
@@ -25,6 +26,7 @@ NAC_SERVER = 'northernarc-server'
 
 @router.post("/nac-dedupe-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
 async def post_automator_data(
+    # Below is for Production setup
     # request_info: Request,
     # response: Response
 
@@ -35,12 +37,13 @@ async def post_automator_data(
     """Function which prepares user data and posts"""
     try:
         print('*********************************** DATA FROM PERDIX THROUGH AUTOMATOR ***********************************')
+        # Below is for data published from automator
         # payload = await request_info.json()
 
         # Below is for data published manually
         payload = request_info
-        # print('data from post automator data', payload)
 
+        # Data Preparation to post the data to NAC dedupe endpoint
         customer_data = payload["enrollmentDTO"]["customer"]
         loan_data = payload["loanDTO"]["loanAccount"]
         first_name = customer_data.get("firstName", "")
@@ -81,7 +84,7 @@ async def post_automator_data(
                         "value": udhyog_aadhar
                     }
                 ],
-                "loanId": str(sm_loan_id),
+                # "loanId": str(sm_loan_id),
                 "pincode": pincode,
             }
 
@@ -90,56 +93,71 @@ async def post_automator_data(
         # Posting the data to the dedupe API
         dedupe_response = await create_dedupe(dedupe_data)
         print('12 - coming back to automator function', dedupe_response)
+        dedupe_response_decode = jsonable_encoder(dedupe_response)
+        dedupe_response_status = dedupe_response_decode.get('status_code')
 
-        # Fetch loan id from DB
-        fetch_dedupe_info = await find_dedupe(sm_loan_id)
-        print('13 - extracting loan information from Perdix', fetch_dedupe_info)
+        if(dedupe_response_status == 200):
+            print('12a Success - response from create dedupe', dedupe_response_decode)
+            # Fetch loan id from DB
+            fetch_dedupe_info = await find_dedupe(sm_loan_id)
+            print('13 - extracting loan information from Perdix', fetch_dedupe_info)
 
-        # Condition to check the success and failure case
-        # sm_loan_id = 287
-        is_dedupe_present = fetch_dedupe_info.get('isDedupePresent', '')
-        is_eligible_flag = fetch_dedupe_info.get('isEligible', '')
-        str_fetch_dedupe_info = fetch_dedupe_info.get('dedupeRefId', '')
+            # Condition to check the success and failure case
+            # sm_loan_id = 287
+            is_dedupe_present = fetch_dedupe_info.get('isDedupePresent', '')
+            is_eligible_flag = fetch_dedupe_info.get('isEligible', '')
+            str_fetch_dedupe_info = fetch_dedupe_info.get('dedupeRefId', '')
 
-        # print('priting dedupe reference id ', str_fetch_dedupe_info)
-        if(is_dedupe_present == 'False'):
-            print('is eligible none', is_eligible_flag)
-            message_remarks = ''
-            update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe', message_remarks,
-                                                 'PROCEED', message_remarks)
-            print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
-        else:
-            print('is eligible not none', is_eligible_flag)
-            if(is_eligible_flag != '0'):
-                message_remarks = fetch_dedupe_info.get('message')
-                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Complete', message_remarks,
-                                                     'PROCEED', message_remarks)
-                print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
-            else:
-                message_remarks = fetch_dedupe_info.get('message')
-                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Rejected',
+            # print('priting dedupe reference id ', str_fetch_dedupe_info)
+            if (is_dedupe_present == 'False'):
+                print('is eligible none', is_eligible_flag)
+                message_remarks = ''
+                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe',
                                                      message_remarks,
                                                      'PROCEED', message_remarks)
                 print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
-        # Posting the loan id to the Perdix API
-        # Fake loan id
-        # sm_loan_id = 287
-        fetch_loan_info = await perdix_fetch_loan(sm_loan_id)
-        # print('13 - extracting loan information from Perdix', fetch_loan_info)
-        payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
-        payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
-        #  Sending Response back to Perdix Automator
-        # result = {
-        #     "partnerHandoffIntegration": {
-        #         "status": "SUCCESS",
-        #         "partnerReferenceKey": str_fetch_dedupe_info
-        #     }
-        # }
-        result = payload
-        # Updating Dedupe Reference ID to Perdix API
-        # str_fetch_dedupe_info = str(fetch_dedupe_info)
+            else:
+                print('is eligible not none', is_eligible_flag)
+                if (is_eligible_flag != '0'):
+                    message_remarks = fetch_dedupe_info.get('message')
+                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Complete',
+                                                         message_remarks,
+                                                         'PROCEED', message_remarks)
+                    print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+                else:
+                    message_remarks = fetch_dedupe_info.get('message')
+                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Rejected',
+                                                         message_remarks,
+                                                         'PROCEED', message_remarks)
+                    print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+            # Posting the loan id to the Perdix API
+            # Fake loan id
+            # sm_loan_id = 287
+            fetch_loan_info = await perdix_fetch_loan(sm_loan_id)
+            # print('13 - extracting loan information from Perdix', fetch_loan_info)
+            payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
+            payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
+            #  Sending Response back to Perdix Automator
+            # result = {
+            #     "partnerHandoffIntegration": {
+            #         "status": "SUCCESS",
+            #         "partnerReferenceKey": str_fetch_dedupe_info
+            #     }
+            # }
+            result = payload
+            # Updating Dedupe Reference ID to Perdix API
+            # str_fetch_dedupe_info = str(fetch_dedupe_info)
 
-        return result
+            return result
+        else:
+            print('12a Failure - response from create dedupe', dedupe_response_decode)
+
+
+            log_id = await insert_logs('MYSQL', 'DB', 'create_dedupe', '500', str(dedupe_response_decode),
+                                       datetime.now())
+            result = dedupe_response_decode
+            print('error from create dedupe', result)
+
     except Exception as e:
         print(e)
         log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', {e.args[0]},
