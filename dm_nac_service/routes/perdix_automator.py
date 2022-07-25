@@ -84,7 +84,7 @@ async def post_automator_data(
                         "value": udhyog_aadhar
                     }
                 ],
-                # "loanId": str(sm_loan_id),
+                "loanId": str(sm_loan_id),
                 "pincode": pincode,
             }
 
@@ -98,56 +98,37 @@ async def post_automator_data(
 
         if(dedupe_response_status == 200):
             print('12a Success - response from create dedupe', dedupe_response_decode)
-            # Fetch loan id from DB
-            fetch_dedupe_info = await find_dedupe(sm_loan_id)
-            print('13 - extracting loan information from Perdix', fetch_dedupe_info)
+            response_body = dedupe_response_decode.get('body')
+            response_body_json = json.loads(response_body)
 
-            # Condition to check the success and failure case
-            # sm_loan_id = 287
-            is_dedupe_present = fetch_dedupe_info.get('isDedupePresent', '')
-            is_eligible_flag = fetch_dedupe_info.get('isEligible', '')
-            str_fetch_dedupe_info = fetch_dedupe_info.get('dedupeRefId', '')
-
-            # print('priting dedupe reference id ', str_fetch_dedupe_info)
-            if (is_dedupe_present == 'False'):
-                print('is eligible none', is_eligible_flag)
+            is_dedupe_present = response_body_json.get('isDedupePresent', '')
+            str_fetch_dedupe_info = response_body_json.get('dedupeReferenceId', '')
+            if (is_dedupe_present == False):
                 message_remarks = ''
                 update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe',
                                                      message_remarks,
                                                      'PROCEED', message_remarks)
                 print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
             else:
-                print('is eligible not none', is_eligible_flag)
-                if (is_eligible_flag != '0'):
-                    message_remarks = fetch_dedupe_info.get('message')
-                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Complete',
-                                                         message_remarks,
-                                                         'PROCEED', message_remarks)
-                    print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
-                else:
-                    message_remarks = fetch_dedupe_info.get('message')
+                dedupe_response_result = len(response_body_json.get('results'))
+                is_eligible_flag = response_body_json.get('results')[dedupe_response_result-1].get('isEligible')
+                message_remarks = response_body_json.get('results')[dedupe_response_result-1].get('message')
+                print('is eligible ', is_eligible_flag)
+                if (is_eligible_flag == False):
                     update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Rejected',
                                                          message_remarks,
                                                          'PROCEED', message_remarks)
                     print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
-            # Posting the loan id to the Perdix API
-            # Fake loan id
-            # sm_loan_id = 287
-            fetch_loan_info = await perdix_fetch_loan(sm_loan_id)
-            # print('13 - extracting loan information from Perdix', fetch_loan_info)
+                else:
+                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe',
+                                                         message_remarks,
+                                                         'SAVE', message_remarks)
+                    print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+
             payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
             payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
-            #  Sending Response back to Perdix Automator
-            # result = {
-            #     "partnerHandoffIntegration": {
-            #         "status": "SUCCESS",
-            #         "partnerReferenceKey": str_fetch_dedupe_info
-            #     }
-            # }
-            result = payload
-            # Updating Dedupe Reference ID to Perdix API
-            # str_fetch_dedupe_info = str(fetch_dedupe_info)
 
+            result = payload
             return result
         else:
             print('12a Failure - response from create dedupe', dedupe_response_decode)

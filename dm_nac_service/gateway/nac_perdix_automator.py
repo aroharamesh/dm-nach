@@ -63,11 +63,21 @@ async def perdix_fetch_loan(loan_id):
         }
         str_url = str(url)
         loan_context_response = requests.get(url, headers=headers)
-        loan_context_dict = response_to_dict(loan_context_response)
-        # log_id = await insert_logs(str_url, 'PERDIX', 'FETCH-CUSTOMER', customer_context_response.status_code,
-        #                            customer_context_response.content, datetime.now())
-        print('*********************************** SUCCESSFULLY FETCHED LOAN INFO FROM PERDIX ***********************************')
-        result = loan_context_dict
+        print('FETCH LOAN FROM PERDIX ', loan_context_response)
+        if(loan_context_response.status_code == 200):
+
+            loan_context_dict = response_to_dict(loan_context_response)
+            # log_id = await insert_logs(str_url, 'PERDIX', 'FETCH-CUSTOMER', customer_context_response.status_code,
+            #                            customer_context_response.content, datetime.now())
+            print('*********************************** SUCCESSFULLY FETCHED LOAN INFO FROM PERDIX ***********************************')
+            result = loan_context_dict
+        else:
+            loan_context_dict = response_to_dict(loan_context_response)
+            print('6 - Error in creating dedupe from NAC endpoint', loan_context_dict)
+            log_id = await insert_logs(str_url, 'PERDIX', 'Unable to find loan details', loan_context_dict.status_code,
+                                       loan_context_dict.content, datetime.now())
+
+            result = JSONResponse(status_code=500, content=loan_context_dict)
     except Exception as e:
         print('*********************************** FAILURE FETCHED LOAN INFO FROM PERDIX ***********************************')
         log_id = await insert_logs(str_url, 'PERDIX', 'FETCH-LOAN', loan_context_response.status_code,
