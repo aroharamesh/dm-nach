@@ -2,17 +2,14 @@ import json
 import urllib.request
 from collections import defaultdict
 from datetime import datetime
-
-from dm_nac_service.resource.log_config import logger
 from fastapi import APIRouter, Depends, status, Request, Response, Body
 from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
 from dm_nac_service.routes.dedupe import create_dedupe, find_dedupe
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
 from dm_nac_service.gateway.nac_perdix_automator import perdix_post_login, perdix_fetch_loan, perdix_update_loan
 from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_get_sanction
 from dm_nac_service.routes.sanction import create_sanction, find_sanction, sanction_status, find_loan_id_from_sanction
-from dm_nac_service.resource.generics import handle_none, hanlde_response_body, hanlde_response_status
+from dm_nac_service.resource.generics import response_to_dict
 from dm_nac_service.data.sanction_model import sanction
 from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.app_responses.sanction import sanction_response_rejected_server, sanction_response_eligible, sanction_response_rejected_bureau, sanction_response_rejected_bre
@@ -26,7 +23,7 @@ router = APIRouter()
 NAC_SERVER = 'northernarc-server'
 
 
-@router.post("/nac-dedupe-automator-data", tags=["Automator"])
+@router.post("/nac-dedupe-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
 async def post_automator_data(
     # Below is for Production setup
     # request_info: Request,
@@ -38,6 +35,7 @@ async def post_automator_data(
 ):
     """Function which prepares user data and posts"""
     try:
+        print('*********************************** DATA FROM PERDIX THROUGH AUTOMATOR ***********************************')
         # Below is for data published from automator
         # payload = await request_info.json()
 
@@ -94,93 +92,61 @@ async def post_automator_data(
         # Posting the data to the dedupe API
         dedupe_response = await create_dedupe(dedupe_data)
         print('12 - coming back to automator function', dedupe_response)
-        # dedupe_response_decode = jsonable_encoder(dedupe_response)
-        # dedupe_response_status = dedupe_response_decode.get('status_code')
-        dedupe_response_status = hanlde_response_status(dedupe_response)
-        if(dedupe_response_status == 200):
-            print('12a Success - response from create dedupe')
-            # response_body = dedupe_response_decode.get('body')
-            # response_body_json = json.loads(response_body)
-            dedupe_data = hanlde_response_body(dedupe_response)
-            print('printing the is dedupe presnet', dedupe_data)
-            is_dedupe_present = dedupe_data.get('isDedupePresent', '')
-            str_fetch_dedupe_info = dedupe_data.get('dedupeReferenceId', '')
 
-            if (is_dedupe_present == False):
+        # Fetch loan id from DB
+        fetch_dedupe_info = await find_dedupe(sm_loan_id)
+        print('13 - extracting loan information from Perdix', fetch_dedupe_info)
 
-                message_remarks = ''
-                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Screening',
-                                                         message_remarks,
-                                                         'PROCEED', message_remarks)
-                print('update_loan_info', update_loan_info)
-                if(update_loan_info.status_code == 200):
-                    print('14a - updated loan information with dedupe reference to Perdix', update_loan_info)
-                    payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
-                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
-                else:
-                    login_unsuccess = hanlde_response_body(update_loan_info)
-                    result = JSONResponse(status_code=500, content=login_unsuccess)
-                    payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-            else:
-                dedupe_response_result = len(dedupe_data.get('results'))
-                is_eligible_flag = dedupe_data.get('results')[dedupe_response_result-1].get('isEligible')
-                message_remarks = dedupe_data.get('results')[dedupe_response_result-1].get('message')
-                if (is_eligible_flag == False):
-                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Rejected',
-                                                         message_remarks,
-                                                         'PROCEED', message_remarks)
+        # Condition to check the success and failure case
+        # sm_loan_id = 287
+        is_dedupe_present = fetch_dedupe_info.get('isDedupePresent', '')
+        is_eligible_flag = fetch_dedupe_info.get('isEligible', '')
+        str_fetch_dedupe_info = fetch_dedupe_info.get('dedupeRefId', '')
 
-                    if (update_loan_info.status_code == 200):
-                        print('14a - updated loan information with dedupe reference to Perdix', update_loan_info)
-                        payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
-                        payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
-                    else:
-                        update_loan_json = jsonable_encoder(update_loan_info)
-                        response_body = update_loan_json.get('body')
-                        response_body_json = json.loads(response_body)
-                        response_body_error = response_body_json.get('error')
-                        response_body_description = response_body_json.get('error_description')
-                        login_unsuccess = {"error": response_body_error, "error_description": response_body_description}
-                        logger.error(f"{datetime.now()} - post_automator_data - 125 - {login_unsuccess}")
-                        result = JSONResponse(status_code=500, content=login_unsuccess)
-                        payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-                        payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-                    print('14b - updated loan information with dedupe reference to Perdix', update_loan_info)
-                else:
-                    update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe',
-                                                         message_remarks,
-                                                         'PROCEED', message_remarks)
-                    if (update_loan_info.status_code == 200):
-                        print('14a - updated loan information with dedupe reference to Perdix', update_loan_info)
-                        payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
-                        payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
-                    else:
-                        update_loan_json = jsonable_encoder((update_loan_info))
-                        response_body = update_loan_json.get('body')
-                        response_body_json = json.loads(response_body)
-                        response_body_error = response_body_json.get('error')
-                        response_body_description = response_body_json.get('error_description')
-                        login_unsuccess = {"error": response_body_error, "error_description": response_body_description}
-                        logger.error(f"{datetime.now()} - post_automator_data - 125 - {login_unsuccess}")
-                        result = JSONResponse(status_code=500, content=login_unsuccess)
-                        payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-                        payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-                    print('14c - updated loan information with dedupe reference to Perdix', update_loan_info)
-
-            result = payload
-
+        # print('priting dedupe reference id ', str_fetch_dedupe_info)
+        if(is_dedupe_present == 'False'):
+            print('is eligible none', is_eligible_flag)
+            message_remarks = ''
+            update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe', message_remarks,
+                                                 'PROCEED', message_remarks)
+            print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
         else:
-            print('12a Failure - response from create dedupe', dedupe_response_decode)
-            dedupe_response_decode_str = str(dedupe_response_decode)
-            logger.error(f"{datetime.now()} - post_automator_data - 150 - {dedupe_response_decode_str}")
-            result = dedupe_response_decode
-            print('error from create dedupe', result)
+            print('is eligible not none', is_eligible_flag)
+            if(is_eligible_flag != '0'):
+                message_remarks = fetch_dedupe_info.get('message')
+                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Complete', message_remarks,
+                                                     'PROCEED', message_remarks)
+                print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+            else:
+                message_remarks = fetch_dedupe_info.get('message')
+                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Rejected',
+                                                     message_remarks,
+                                                     'PROCEED', message_remarks)
+                print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+        # Posting the loan id to the Perdix API
+        # Fake loan id
+        # sm_loan_id = 287
+        fetch_loan_info = await perdix_fetch_loan(sm_loan_id)
+        # print('13 - extracting loan information from Perdix', fetch_loan_info)
+        payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
+        payload['partnerHandoffIntegration']['partnerReferenceKey'] = str_fetch_dedupe_info
+        #  Sending Response back to Perdix Automator
+        # result = {
+        #     "partnerHandoffIntegration": {
+        #         "status": "SUCCESS",
+        #         "partnerReferenceKey": str_fetch_dedupe_info
+        #     }
+        # }
+        result = payload
+        # Updating Dedupe Reference ID to Perdix API
+        # str_fetch_dedupe_info = str(fetch_dedupe_info)
 
+        return result
     except Exception as e:
-        logger.exception(f"{datetime.now()} - Issue with post_automator_data function, {e.args[0]}")
-        result = JSONResponse(status_code=500, content={"message": f"Issue with post_automator_data function, {e.args[0]}"})
-    return result
+        print(e)
+        log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', {e.args[0]},
+                                   datetime.now())
+        result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
 
 
 @router.post("/nac-sanction-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
@@ -198,13 +164,19 @@ async def post_sanction_automator_data(
         # Below is for data published manually
         payload = request_info
 
-        # customer Data
+        # Get Dedupe Reference ID
+        # sm_loan_id = 287
+        # print('before loan fetch')
+        # fetch_dedupe_info = await find_dedupe(sm_loan_id)
+        # dedupe_reference_id = "5134610851082868"
+        # print(fetch_dedupe_info)
+
+
         customer_data = payload["enrollmentDTO"]["customer"]
+        loan_data = payload["loanDTO"]["loanAccount"]
         first_name = customer_data.get("firstName", "")
-        middle_name = customer_data.get("middleName", "Dummy")
-        middle_name = handle_none(middle_name, 'Dummy')
-        last_name = customer_data.get("lastName", "Dummy")
-        last_name = handle_none(last_name, 'Dummy')
+        middle_name = customer_data.get("", "Dummy")
+        last_name = customer_data.get("", "Dummy")
         first_name = first_name if first_name else ""
         last_name = last_name if last_name else ""
         middle_name = middle_name if middle_name else ""
@@ -227,67 +199,40 @@ async def post_sanction_automator_data(
             )
         mobile_number = str(customer_data.get("mobilePhone", "9862590000"))[-10:]
         pincode = str(customer_data.get("pincode", ""))
+        sm_loan_id = loan_data.get("id", "SML00253011")
         udhyog_aadhar = customer_data.get("aadhaarNo")
         pan_no = customer_data.get("panNo", "ALWPG5909L")
-        owned_vehicle = customer_data.get("", "2W")
-        curr_door_number = customer_data.get("doorNo", "jayanagar201")
-        curr_locality = customer_data.get("mailingLocality", "bangalore")
-        curr_city = customer_data.get("mailingLocality", "bangalore")
-        perm_city = customer_data.get("locality", "bangalore")
-        curr_district = customer_data.get("district", "bangalore")
-        # curr_city=customer_data.get("","bangalore")
-        curr_state = customer_data.get("state", "Karnataka")
-        email_id = customer_data.get("email", "testsm1@gmail.com")
-        maritual_status = customer_data.get("maritalStatus", "MARRIED")
-        last_name = last_name if last_name else ""
-        permanent_landmark = customer_data.get("landmark", "VTU")
-        permanent_landmark = handle_none(permanent_landmark, 'VTU')
-        current_landmark = customer_data.get("landmark", "VTU")
-        current_landmark = handle_none(current_landmark, 'BLR')
-        if (current_landmark is None):
-            current_landmark = 'VTU'
-
         bank_accounts_info = {}
         if len(customer_data["customerBankAccounts"]) > 0:
             bank_accounts_info = customer_data["customerBankAccounts"][0]
         account_number = bank_accounts_info.get("accountNumber", "1234313323")
         customer_bank_name = bank_accounts_info.get("customerBankName", "YES BANK LIMITED")
-
+        owned_vehicle = customer_data.get("","2W")
+        curr_door_number = customer_data.get("doorNo", "jayanagar201")
+        curr_locality = customer_data.get("locality", "bangalore")
+        landmark = customer_data.get("","banashankari circle")
+        curr_district = customer_data.get("district","bangalore")
+        # curr_city=customer_data.get("","bangalore")
+        curr_state = customer_data.get("state","Karnataka")
         occupation_info = {}
+
         if len(customer_data["familyMembers"]) > 0:
             occupation_info = customer_data["familyMembers"][0]
         curr_occupation = occupation_info.get("occupation", "SALARIED_OTHER")
         mode_salary = occupation_info.get("", "ONLINE")
         installment_info = {}
-
+        if len(loan_data["disbursementSchedules"]) > 0:
+            installment_info = loan_data["disbursementSchedules"][0]
+        installment_date = installment_info.get("", "2020-04-11")
         income_info = {}
         if len(customer_data["familyMembers"]) > 0:
             income_info = customer_data["familyMembers"][0]["incomes"][0]
         gross_income = income_info.get("incomeEarned", 30000)
         net_income = income_info.get("incomeEarned", 40000)
-
-        emi_info = {}
-        if len(customer_data["liabilities"]) > 0:
-            emi_info = customer_data["liabilities"][0]
-        emi_date = emi_info.get("", "2022-04-10")
-
-        repayment_info = {}
-        if len(customer_data["verifications"]) > 0:
-            repayment_info = customer_data["verifications"][0]
-
-        repayment_mode = repayment_info.get("", "NACH")
-
-        # Loan Data
-        loan_data = payload["loanDTO"]["loanAccount"]
-        sm_loan_id = loan_data.get("id", "SML00253011")
-        loan_purpose = loan_data.get("requestedLoanPurpose", "Others-TO BUY GOLD")
-        loan_amount = loan_data.get("loanAmount", "10000")
-        interest_rate = loan_data.get("interestRate", "25")
+        loan_purpose = loan_data.get("requestedLoanPurpose","Others-TO BUY GOLD")
+        loan_amount = loan_data.get("loanAmount","10000")
+        interest_rate = loan_data.get("interestRate","25")
         schedule_date = loan_data.get("scheduleStartDate", "")
-        if len(loan_data["disbursementSchedules"]) > 0:
-            installment_info = loan_data["disbursementSchedules"][0]
-        installment_date = installment_info.get("", "2020-04-11")
-
 
         if "str" != type(schedule_date).__name__:
             schedule_date = "{:04d}-{:02d}-{:02d}".format(
@@ -299,28 +244,29 @@ async def post_sanction_automator_data(
         process_fee = loan_data.get("processingFeeInPaisa", 900)
         pre_emi = loan_data.get("", 0)
         max_emi = loan_data.get("emi", 100)
-        gst = loan_data.get("", 0)
+        gst = loan_data.get("",0)
 
-        frequency = loan_data.get("frequency", "M")
-        if(frequency == 'M'):
-            # repayment_frequency = 'MONTHLY'
-            repayment_frequency = 'WEEKLY'
-            tenure_unit = 'MONTHS'
-        if(frequency == 'W'):
-            repayment_frequency = 'WEEKLY'
-            tenure_unit = 'WEEKS'
-        if (frequency == 'D'):
-            repayment_frequency = 'DAILY'
-            tenure_unit = 'DAYS'
-        if (frequency == 'Y'):
-            tenure_unit = 'YEARS'
-        if (frequency == 'F'):
-            repayment_frequency = 'FORTNIGHTLY'
+        emi_info = {}
+        if len(customer_data["liabilities"]) > 0:
+            emi_info = customer_data["liabilities"][0]
+        emi_date = emi_info.get("", "2022-04-10")
+        repayment_frequency = payload.get("frequency", "WEEKLY")
 
+        repayment_frequency = "Monthly" if repayment_frequency == "Monthly" else "F"
+        repayment_frequency = loan_data.get("frequencyRequested","WEEKLY")
         tenure_value = loan_data.get("tenure", 36)
         tenure_value_int = int(tenure_value)
+
         product_name = loan_data.get("productCode", "Personal Loan")
+        email_id = customer_data.get("email", "testsm1@gmail.com")
+        maritual_status = customer_data.get("maritalStatus", "MARRIED")
         client_id = loan_data.get("customerId", "12345")
+
+        repayment_info = {}
+        if len(customer_data["verifications"]) > 0:
+            repayment_info = customer_data["verifications"][0]
+
+        repayment_mode = repayment_info.get("", "NACH")
 
         sanction_data = {
                 "mobile": mobile_number,
@@ -336,14 +282,14 @@ async def post_sanction_automator_data(
                 "ownedVehicle": owned_vehicle,
                 "currDoorAndBuilding": curr_door_number,
                 "currStreetAndLocality":curr_locality,
-                "currLandmark": current_landmark,
-                "currCity": curr_city,
+                "currLandmark": landmark,
+                "currCity": "",
                 "currDistrict": curr_district,
                 "currState": curr_state,
                 "currPincode": pincode,
                 "permDoorAndBuilding": curr_door_number,
-                "permLandmark": permanent_landmark,
-                "permCity":perm_city,
+                "permLandmark": landmark,
+                "permCity":"",
                 "permDistrict": curr_district,
                 "permState": curr_state,
                 "permPincode": pincode,
@@ -368,7 +314,7 @@ async def post_sanction_automator_data(
                 "repaymentFrequency": repayment_frequency,
                 "repaymentMode": repayment_mode,
                 "tenureValue": tenure_value_int,
-                "tenureUnits": tenure_unit,
+                "tenureUnits": "",
                 "productName": product_name,
                 "primaryBankAccount": account_number,
                 "bankName": customer_bank_name,
@@ -379,79 +325,35 @@ async def post_sanction_automator_data(
                 "maritalStatus": maritual_status,
                 "loanId": str(sm_loan_id),
                 }
-
+        print('COMING HERE')
         print('1 - Sanction Data from Perdix and Sending the data to create sanction function', sanction_data)
         sanction_response = await create_sanction(sanction_data)
-        sanction_response_decode = jsonable_encoder(sanction_response)
-        sanction_response_status = sanction_response_decode.get('status_code')
+        print('100 - response back from NAC ', sanction_response)
 
-        if(sanction_response_status == 200):
-            print('CLEAR FROM CREATE SANCTION')
-            print('100 - response back from NAC ', sanction_response)
+        get_sanction_ref = await find_sanction(sm_loan_id)
+        print('101 - FOUND CUSTOMER ID FROM DB', get_sanction_ref)
+        reference_id = get_sanction_ref.get('customerId', '')
+        print('printing referece id ', reference_id)
+        message_remarks = 'testing '
 
-            get_sanction_ref = await find_sanction(sm_loan_id)
-            get_sanction_ref_decode = jsonable_encoder(get_sanction_ref)
-            get_sanction_ref_status = get_sanction_ref_decode.get('status_code')
-            if(get_sanction_ref_status == 200):
-                print('101 - FOUND CUSTOMER ID FROM DB', get_sanction_ref)
-                response_body = get_sanction_ref_decode.get('body')
-                response_body_json = json.loads(response_body)
-                print('printing referece id ', response_body_json)
-                # customer_response_id = str(response_body_json.get('content').get('value'))
-                reference_id = str(response_body_json.get('customerId'))
-                message_remarks = 'Customer Created Successfully'
+        # To Update Perdix with Sanction Reference ID
+        update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
+                                             'PROCEED', message_remarks)
 
-                # To Update Perdix with Sanction Reference ID
-                update_loan_info = await update_loan('SANCTION', sm_loan_id, reference_id, 'Dedupe', message_remarks,
-                                                     'PROCEED', message_remarks)
-                update_loan_info_decode = jsonable_encoder(update_loan_info)
-                update_loan_info_status = update_loan_info_decode.get('status_code')
-                if(update_loan_info_status == 200):
-                    print('customer id updated success in perdix')
-                    payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
-                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = reference_id
-                    result = payload
-                else:
-                    print('customer id not updated success in perdix')
-                    response_body = update_loan_info_decode.get('body')
-                    response_body_json = json.loads(response_body)
-                    response_body_error = response_body_json.get('error')
-                    response_body_description = response_body_json.get('error_description')
-                    update_unsuccess = {"error": response_body_error, "error_description": response_body_description}
-                    logger.error(f"{datetime.now()} - post_sanction_automator_data - 426 - {update_unsuccess}")
-                    result = JSONResponse(status_code=500, content=update_unsuccess)
-                    payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-                    result = payload
-            else:
-                print('101 - NOT FOUND CUSTOMER ID FROM DB', get_sanction_ref)
-                print('customer id not updated success in perdix')
-                response_body = sanction_response_decode.get('body')
-                response_body_json = json.loads(response_body)
-                response_body_error = response_body_json.get('error')
-                response_body_description = response_body_json.get('error_description')
-                update_unsuccess = {"error": response_body_error, "error_description": response_body_description}
-                logger.error(f"{datetime.now()} - post_sanction_automator_data - 426 - {update_unsuccess}")
-                result = JSONResponse(status_code=500, content=update_unsuccess)
-                payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-                payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-                result = payload
-        else:
-            response_body = sanction_response_decode.get('body')
-            response_body_json = json.loads(response_body)
-            response_body_error = response_body_json.get('error')
-            response_body_error_description = response_body_json.get('error_description')
-            app_log_error = {"error": response_body_error, "error_description": response_body_error_description}
-            logger.error(f"{datetime.now()} - post_sanction_automator_data - 452 - {app_log_error}")
-            result = JSONResponse(status_code=500, content=app_log_error)
-            payload['partnerHandoffIntegration']['status'] = 'FAILURE'
-            payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
-            result = payload
+
+
+        payload['partnerHandoffIntegration']['status'] = 'SUCCESS'
+        payload['partnerHandoffIntegration']['partnerReferenceKey'] = reference_id
+        # print('14 - updated loan information with dedupe reference to Perdix', update_loan_info)
+        # update_loan_info = await update_loan(sm_loan_id, str_fetch_dedupe_info, 'Dedupe', message_remarks,
+        #                                      'PROCEED', message_remarks)
+        # print('0 - testing', sanction_response)
+        # print('1 - Prepare Data to push to NAC endpoint', sanction_data)
+        # return sanction_data
+
+        return payload
     except Exception as e:
-        logger.exception(f"{datetime.now()} - Issue with post_sanction_automator_data function, {e.args[0]}")
-        result = JSONResponse(status_code=500,
-                              content={"message": f"Issue with post_automator_data function, {e.args[0]}"})
-    return result
+        print(e)
 
 
 @router.post("/nac-disbursement-automator-data", status_code=status.HTTP_200_OK, tags=["Automator"])
@@ -595,100 +497,136 @@ async def update_loan(
     loan_process_action: str,
     remarks: str
 ):
-    try:
-        # result = loan_info
+    # result = loan_info
 
-        #  For testing manually
-        # loan_update_response = await perdix_update_loan(loan_info)
-        # result = loan_update_response
+    #  For testing manually
+    # loan_update_response = await perdix_update_loan(loan_info)
+    # result = loan_update_response
 
-        # For Real updating the loan information
-        print('coming here inside of update_loan')
-        get_loan_info = await perdix_fetch_loan(loan_id)
+    # For Real updating the loan information
+    get_loan_info = await perdix_fetch_loan(loan_id)
+    # print('get loan info', get_loan_info)
+    # print('Reject Reason - ', get_loan_info.get('loanAccount').get('rejectReason'))
+    # print('Stage - ', get_loan_info.get('stage'))
+    # print('Remarks - ', get_loan_info.get('remarks'))
+    # print('loanProcessAction - ', get_loan_info.get('loanProcessAction'))
+    # print('udf41 - ', get_loan_info.get('accountUserDefinedFields').get('userDefinedFieldValues').get('udf41'))
+    json_data_version = get_loan_info.get('version')
+    # print('printing version of data ', json_data_version)
+    if "rejectReason" in get_loan_info:
+        get_loan_info['rejectReason'] = reject_reason
+    # if "stage" in get_loan_info:
+    #     get_loan_info['stage'] = "Testing stage"
+    get_loan_info['stage'] = stage
+    if "remarks1" in get_loan_info:
+        get_loan_info['remarks1'] = "Testing remarks1"
+    if "loanProcessAction" in get_loan_info:
+        get_loan_info['loanProcessAction'] = "Testing loanProcessAction"
+    if "accountUserDefinedFields" in get_loan_info:
+        if(url_type == 'DEDUPE'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf41': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf41': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf41'] = reference_id
 
-        print('coming after inside of update_loan', type(get_loan_info) )
-        loan_info_response_decode = jsonable_encoder(get_loan_info)
-        loan_response_decode_status = loan_info_response_decode.get('status_code')
-        if(loan_response_decode_status == 200):
-            print('got the loan info')
-            response_body = loan_info_response_decode.get('body')
-            get_loan_info = json.loads(response_body)
-            print('got the loan info sdafasdf', get_loan_info)
-            json_data_version = get_loan_info.get('version')
-            if "rejectReason" in get_loan_info:
-                get_loan_info['rejectReason'] = reject_reason
-            get_loan_info['stage'] = stage
-            if "remarks1" in get_loan_info:
-                get_loan_info['remarks1'] = "Testing remarks1"
-            if "loanProcessAction" in get_loan_info:
-                get_loan_info['loanProcessAction'] = "Testing loanProcessAction"
-            if "accountUserDefinedFields" in get_loan_info:
-                if (url_type == 'DEDUPE'):
-                    print('inside update loan ', reference_id)
-                    get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf41'] = reference_id
+            # print('dedupe', get_loan_info)
+        if(url_type == 'SANCTION'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf42'] = reference_id
+            # print('sanction', get_loan_info)
+        if(url_type == 'SANCTION-REFERENCE'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf43'] = reference_id
+            # print('sanction', get_loan_info)
+        if(url_type == 'DISBURSEMENT'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf44'] = reference_id
+            # print('sanction', get_loan_info)
+        if (url_type == 'DISBURSEMENT-ITR'):
+            # get_loan_info['accountUserDefinedFields']['userDefinedFieldValues'] = {
+            #     'udf42': reference_id
+            #     # 'udf42': "5211201547885960"
+            #     # 'udf43': "5211201547885960"
+            #     # 'udf44': "5211201547885960"
+            #     # 'udf45': "5211201547885960"
+            # }
+            # get_loan_info['accountUserDefinedFields'] = {
+            #     'userDefinedFieldValues': {
+            #         'udf42': reference_id
+            #     }
+            # }
+            get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf45'] = reference_id
+            # print('sanction', get_loan_info)
+    # if "version" in get_loan_info:
+    #     get_loan_info['version'] = json_data_version + 2
 
-                if (url_type == 'SANCTION'):
-                    get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf42'] = reference_id
+    prepare_loan_info = {
+        "loanAccount": get_loan_info,
+        "loanProcessAction": loan_process_action,
+        "stage": stage,
+        "remarks": remarks
+    }
+    print('prepare_loan_info - ', prepare_loan_info)
+    update_perdix_loan = await perdix_update_loan(prepare_loan_info)
+    # update_perdix_loan_dict = response_to_dict(update_perdix_loan)
+    # update_perdix_loan_dict = json.loads(update_perdix_loan.decode('utf-8'))
+    # print('coming after gateway ', update_perdix_loan)
 
-                if (url_type == 'SANCTION-REFERENCE'):
-                    get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf43'] = reference_id
 
-                if (url_type == 'DISBURSEMENT'):
-                    get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf44'] = reference_id
+    # loan_update_response = await perdix_update_loan(loan_id)
 
-                if (url_type == 'DISBURSEMENT-ITR'):
-                    get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf45'] = reference_id
-            if(stage == 'Rejected'):
-                prepare_loan_info = {
-                    "loanAccount": get_loan_info,
-                    "loanProcessAction": loan_process_action,
-                    "stage": stage,
-                    "remarks": remarks,
-                    "rejectReason": reject_reason
-                }
-            else:
-                prepare_loan_info = {
-                    "loanAccount": get_loan_info,
-                    "loanProcessAction": loan_process_action,
-                    "remarks": remarks,
-                    "rejectReason": ''
-                }
-            print('before updateing perdix loan', prepare_loan_info)
-            update_perdix_loan = await perdix_update_loan(prepare_loan_info)
-            update_perdix_decode = jsonable_encoder(update_perdix_loan)
-            perdix_update_loan_response_decode_status = update_perdix_decode.get('status_code')
-            if(perdix_update_loan_response_decode_status == 200):
-                # result = update_perdix_loan
-                response_body = update_perdix_decode.get('body')
-                response_body_json = json.loads(response_body)
-                print('after updateing perdix loan', response_body_json)
+    # result = get_loan_info
+    result = update_perdix_loan
 
-                result = JSONResponse(status_code=200, content=response_body_json)
-            else:
-                response_body = update_perdix_decode.get('body')
-                response_body_json = json.loads(response_body)
-                response_body_error = response_body_json.get('error')
-                response_body_error_description = response_body_json.get('error_description')
-                log_error = {"error": response_body_error, "error_description": response_body_error_description}
-                # log_id = await insert_logs('PERDIX', 'PERDIX', 'UPDATING-LOAN', response_body_json.error, response_body_json.error_description,
-                #                            datetime.now())
-                logger.error(f"{datetime.now()} - update_loan - 573 - {log_error}")
-                result = JSONResponse(status_code=404, content=log_error)
+    # print('loan status code ', loan_update_response.status_code)
+    # print('loan status content ')
+    # print(result)
+    # get_perdix_loan_data = await perdix_fetch_loan(loan_id)
+    # print('getting customer', get_perdix_data)
 
-        else:
-            print('did not get the loan info', loan_info_response_decode)
-            response_body = loan_info_response_decode.get('body')
-            response_body_json = json.loads(response_body)
-            response_body_error = response_body_json.get('error')
-            response_body_error_description = response_body_json.get('error_description')
-            log_error = {"error": response_body_error, "error_description": response_body_error_description}
-            logger.error(f"{datetime.now()} - update_loan - 573 - {log_error}")
-            result = JSONResponse(status_code=404, content=log_error)
-    except Exception as e:
-        logger.exception(f"Issue with update_loan function, {e.args[0]}")
-        result = JSONResponse(status_code=500, content={"message": f"Error Occurred at DB level - {e.args[0]}"})
     return result
-
 
 
 @router.post("/sanction/upload-document", tags=["Perdix"])
