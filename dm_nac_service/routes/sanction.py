@@ -1,13 +1,14 @@
 import random
 import re
 import shutil
-
+import json
 import requests
 import os
 import urllib.request
 
 from fastapi import APIRouter, Depends, status, File, UploadFile, Form, Query
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from datetime import datetime
 from databases import Database
 from fastapi.exceptions import HTTPException
@@ -16,6 +17,7 @@ from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
 from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_sanction_fileupload, nac_get_sanction
 from dm_nac_service.routes.dedupe import create_dedupe, find_dedupe
+from dm_nac_service.resource.log_config import logger
 from dm_nac_service.app_responses.sanction import sanction_request_data, sanction_response_success_data, sanction_response_error_data, sanction_file_upload_response1, sanction_file_upload_response2
 from dm_nac_service.data.dedupe_model import (
     dedupe
@@ -43,30 +45,22 @@ async def find_sanction(
         loan_id
 ):
     try:
-        # print('selecting loan id')
         database = get_database()
         select_query = sanction.select().where(sanction.c.loan_id == loan_id).order_by(sanction.c.id.desc())
-        # print('loan query', select_query)
-        raw_dedupe = await database.fetch_one(select_query)
-        dedupe_dict = {
-            "customerId": raw_dedupe[1],
-            # "isEligible": raw_dedupe[18],
-            # "isEl1igible": "True",
-            "dedupeRefId": raw_dedupe[57]
+        raw_sanction = await database.fetch_one(select_query)
+        sanction_dict = {
+            "customerId": raw_sanction[1],
+            "dedupeRefId": raw_sanction[57]
         }
-        print( '*********************************** SUCCESSFULLY FETCHED DEDUPE REFERENCE ID FROM DB  ***********************************')
-        # result = raw_dedupe[1]
-        result = dedupe_dict
-        if raw_dedupe is None:
-            return None
 
-        # return DedupeDB(**raw_dedupe)
+        print( '*********************************** SUCCESSFULLY FETCHED SANCTION REFERENCE ID FROM DB  ***********************************', sanction_dict)
+        result = JSONResponse(status_code=200, content=sanction_dict)
     except Exception as e:
+        logger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
         print(
-            '*********************************** FAILURE FETCHING DEDUPE REFERENCE ID FROM DB  ***********************************')
-        log_id = await insert_logs('MYSQL', 'DB', 'find_dedupe', '500', {e.args[0]},
-                                   datetime.now())
-        result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
+            '*********************************** FAILURE FETCHING SANCTION REFERENCE ID FROM DB  ***********************************')
+        db_log_error = {"error": 'DB', "error_description": 'Customer ID not found in DB'}
+        result = JSONResponse(status_code=500, content=db_log_error)
     return result
 
 
@@ -80,143 +74,135 @@ async def create_sanction(
         database = get_database()
 
         sanction_data['emiWeek'] = 1
-        sanction_data['lastName'] = "Dummy"
-        sanction_data['currCity'] = "Bangalore"
+        # sanction_data['lastName'] = "Dummy"
         sanction_data['companyName'] = "Dvara"
-        sanction_data['tenureUnits'] = "MONTHS"
-        # sanction_data['clientId'] = "34545"
-        sanction_data['permCity'] = "Bangalore"
         # we have occupation which is not matching with NAC default values
         sanction_data['occupation'] = "SELF_EMPLOYED"
-        sanction_data['repaymentFrequency'] = "WEEKLY"
+        # sanction_data['repaymentFrequency'] = "WEEKLY"
         sanction_data['incomeValidationStatus'] = "SUCCESS"
 
         # Below is for fake data
         # sanction_dict = sanction_data.dict()
 
-        # print('coming here inside create sanction')
         sm_loan_id = sanction_data['loanId']
         fetch_dedupe_info = await find_dedupe(sm_loan_id)
-        dedupe_reference_id = fetch_dedupe_info['dedupeRefId']
-        print('2 - extracted dedupe reference id from DB', fetch_dedupe_info)
-        sanction_data['dedupeReferenceId'] = int(dedupe_reference_id)
+        fetch_dedupe_info_decode = jsonable_encoder(fetch_dedupe_info)
+        fetch_dedupe_info_decode_status = fetch_dedupe_info_decode.get('status_code')
+        if(fetch_dedupe_info_decode_status == 200):
+            print('FOUND DEDUPE REFERENCE ID', fetch_dedupe_info_decode)
+            response_body = fetch_dedupe_info_decode.get('body')
+            response_body_json = json.loads(response_body)
+            dedupe_reference_id = response_body_json.get('dedupeRefId')
+            print('2 - extracted dedupe reference id from DB', fetch_dedupe_info)
+            sanction_data['dedupeReferenceId'] = int(dedupe_reference_id)
 
-        sanction_dict = sanction_data
+            sanction_dict = sanction_data
 
-        print('3 - Posting data to NAC create sanction endpoint', sanction_dict)
+            print('3 - Posting data to NAC create sanction endpoint', sanction_dict)
 
-        # Real API response from NAC
-        sanction_response = await nac_sanction('uploadSanctionJSON', sanction_dict)
-        print('5 - Response from NAC Sanction Endpoint', sanction_response)
-        get_sanction_response = sanction_response.get('error')
-        if(sanction_response['content']['status'] == 'SUCCESS'):
-            customer_id = sanction_response['content']['value']['customerId']
-            store_record_time = datetime.now()
-            sanction_info = {
-                'customer_id': str(customer_id),
-                'created_date': store_record_time,
-                'mobile': sanction_dict['mobile'],
-                'first_name': sanction_dict['firstName'],
-                'last_name': sanction_dict['lastName'],
-                'father_name': sanction_dict['fatherName'],
-                'gender': sanction_dict['gender'],
-                'id_proof_type_from_partner': sanction_dict['idProofTypeFromPartner'],
-                'id_proof_number_from_partner': sanction_dict['idProofNumberFromPartner'],
-                'address_proof_type_from_partner': sanction_dict['addressProofTypeFromPartner'],
-                'address_proof_number_from_partner': sanction_dict['addressProofNumberFromPartner'],
-                'dob': sanction_dict['dob'],
-                'owned_vehicle': sanction_dict['ownedVehicle'],
-                'curr_door_and_building': sanction_dict['currDoorAndBuilding'],
-                'curr_street_and_locality': sanction_dict['currStreetAndLocality'],
-                'curr_landmark': sanction_dict['currLandmark'],
-                'curr_city': sanction_dict['currCity'],
-                'curr_district': sanction_dict['currDistrict'],
-                'curr_state': sanction_dict['currState'],
-                'curr_pincode': sanction_dict['currPincode'],
-                'perm_door_and_building': sanction_dict['permDoorAndBuilding'],
-                'perm_city': sanction_dict['permCity'],
-                'perm_district': sanction_dict['permDistrict'],
-                'perm_state': sanction_dict['permState'],
-                'perm_pincode': sanction_dict['permPincode'],
-                'occupation': sanction_dict['occupation'],
-                'company_name': sanction_dict['companyName'],
-                'gross_monthly_income': sanction_dict['grossMonthlyIncome'],
-                'net_monthly_income': sanction_dict['netMonthlyIncome'],
-                'income_validation_status': sanction_dict['incomeValidationStatus'],
-                'pan': sanction_dict['pan'],
-                'purpose_of_loan': sanction_dict['purposeOfLoan'],
-                'loan_amount': sanction_dict['loanAmount'],
-                'interest_rate': sanction_dict['interestRate'],
-                'schedule_start_date': sanction_dict['scheduleStartDate'],
-                'first_installment_date': sanction_dict['firstInstallmentDate'],
-                'total_processing_fees': sanction_dict['totalProcessingFees'],
-                'gst': sanction_dict['gst'],
-                'pre_emi_amount': sanction_dict['preEmiAmount'],
-                'emi': sanction_dict['emi'],
-                'emi_date': sanction_dict['emiDate'],
-                'emi_week': sanction_dict['emiWeek'],
-                'repayment_frequency': sanction_dict['repaymentFrequency'],
-                'repayment_mode': sanction_dict['repaymentMode'],
-                'tenure_value': sanction_dict['tenureValue'],
-                'tenure_units': sanction_dict['tenureUnits'],
-                'product_name': sanction_dict['productName'],
-                'primary_bank_account': sanction_dict['primaryBankAccount'],
-                'bank_name': sanction_dict['bankName'],
-                'mode_of_salary': sanction_dict['modeOfSalary'],
-                'client_id': sanction_dict['clientId'],
-                'dedupe_reference_id': sanction_dict['dedupeReferenceId'],
-                'email': sanction_dict['email'],
-                'middle_name': sanction_dict['middleName'],
-                'marital_status': sanction_dict['maritalStatus'],
-                'loan_id': sanction_dict['loanId'],
-            }
-            print('4 - Storing customer Id from NAC Sanction Endpoint to DB', sanction_info)
-            insert_query = sanction.insert().values(sanction_info)
-            print('query', insert_query)
-            sanction_id = await database.execute(insert_query)
-            print('5 - Saved Sanction information to DB', sanction_info)
-            result = JSONResponse(status_code=200, content={"customerid": sanction_response})
-            print('6 - Update customer id to udf42 in Perdix', sanction_info)
+            # Real API response from NAC
+            sanction_response = await nac_sanction('uploadSanctionJSON', sanction_dict)
+            print('7 - Getting the dedupe reference from nac_dedupe function - ', sanction_response)
+            sanction_response_decode = jsonable_encoder(sanction_response)
+            sanction_response_decode_status = sanction_response_decode.get('status_code')
+            if(sanction_response_decode_status == 200):
 
-            return result
+                response_body = sanction_response_decode.get('body')
+                response_body_json = json.loads(response_body)
 
-            # result = sanction_info
+                response_body_json_status = response_body_json.get('content').get('status')
+                print('CUSTOMER CREATED SUCCFULLY', response_body_json_status)
+                response_body_json__error = response_body_json.get('error')
+                if (response_body_json_status == 'SUCCESS'):
+                    # customer_id = sanction_response['content']['value']['customerId']
+                    customer_id = response_body_json.get('content').get('value').get('customerId')
+                    store_record_time = datetime.now()
+                    sanction_info = {
+                        'customer_id': str(customer_id),
+                        'created_date': store_record_time,
+                        'mobile': sanction_dict['mobile'],
+                        'first_name': sanction_dict['firstName'],
+                        'last_name': sanction_dict['lastName'],
+                        'father_name': sanction_dict['fatherName'],
+                        'gender': sanction_dict['gender'],
+                        'id_proof_type_from_partner': sanction_dict['idProofTypeFromPartner'],
+                        'id_proof_number_from_partner': sanction_dict['idProofNumberFromPartner'],
+                        'address_proof_type_from_partner': sanction_dict['addressProofTypeFromPartner'],
+                        'address_proof_number_from_partner': sanction_dict['addressProofNumberFromPartner'],
+                        'dob': sanction_dict['dob'],
+                        'owned_vehicle': sanction_dict['ownedVehicle'],
+                        'curr_door_and_building': sanction_dict['currDoorAndBuilding'],
+                        'curr_street_and_locality': sanction_dict['currStreetAndLocality'],
+                        'curr_landmark': sanction_dict['currLandmark'],
+                        'curr_city': sanction_dict['currCity'],
+                        'curr_district': sanction_dict['currDistrict'],
+                        'curr_state': sanction_dict['currState'],
+                        'curr_pincode': sanction_dict['currPincode'],
+                        'perm_door_and_building': sanction_dict['permDoorAndBuilding'],
+                        'perm_city': sanction_dict['permCity'],
+                        'perm_district': sanction_dict['permDistrict'],
+                        'perm_state': sanction_dict['permState'],
+                        'perm_pincode': sanction_dict['permPincode'],
+                        'occupation': sanction_dict['occupation'],
+                        'company_name': sanction_dict['companyName'],
+                        'gross_monthly_income': sanction_dict['grossMonthlyIncome'],
+                        'net_monthly_income': sanction_dict['netMonthlyIncome'],
+                        'income_validation_status': sanction_dict['incomeValidationStatus'],
+                        'pan': sanction_dict['pan'],
+                        'purpose_of_loan': sanction_dict['purposeOfLoan'],
+                        'loan_amount': sanction_dict['loanAmount'],
+                        'interest_rate': sanction_dict['interestRate'],
+                        'schedule_start_date': sanction_dict['scheduleStartDate'],
+                        'first_installment_date': sanction_dict['firstInstallmentDate'],
+                        'total_processing_fees': sanction_dict['totalProcessingFees'],
+                        'gst': sanction_dict['gst'],
+                        'pre_emi_amount': sanction_dict['preEmiAmount'],
+                        'emi': sanction_dict['emi'],
+                        'emi_date': sanction_dict['emiDate'],
+                        'emi_week': sanction_dict['emiWeek'],
+                        'repayment_frequency': sanction_dict['repaymentFrequency'],
+                        'repayment_mode': sanction_dict['repaymentMode'],
+                        'tenure_value': sanction_dict['tenureValue'],
+                        'tenure_units': sanction_dict['tenureUnits'],
+                        'product_name': sanction_dict['productName'],
+                        'primary_bank_account': sanction_dict['primaryBankAccount'],
+                        'bank_name': sanction_dict['bankName'],
+                        'mode_of_salary': sanction_dict['modeOfSalary'],
+                        'client_id': sanction_dict['clientId'],
+                        'dedupe_reference_id': sanction_dict['dedupeReferenceId'],
+                        'email': sanction_dict['email'],
+                        'middle_name': sanction_dict['middleName'],
+                        'marital_status': sanction_dict['maritalStatus'],
+                        'loan_id': sanction_dict['loanId'],
+                    }
+                    print('4 - Storing customer Id from NAC Sanction Endpoint to DB', sanction_info)
+                    insert_query = sanction.insert().values(sanction_info)
+                    print('query', insert_query)
+                    sanction_id = await database.execute(insert_query)
+                    print('5 - Saved Sanction information to DB', sanction_info)
+                    result = JSONResponse(status_code=200, content={"customerid": customer_id})
+                    print('6 - Update customer id to udf42 in Perdix', sanction_info)
+
+                    return result
+                else:
+                    log_id = await insert_logs('DB', 'NAC', 'DEDUPE', sanction_response.status_code,
+                                               sanction_response.content, datetime.now())
+                    result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API"})
+            else:
+                print('CUSTOMER NOT CREATED SUCCFULLY', sanction_response_decode)
+            print('5 - Response from NAC Sanction Endpoint', sanction_response)
+
         else:
-            log_id = await insert_logs('DB', 'NAC', 'DEDUPE', sanction_response.status_code,
-                                       sanction_response.content, datetime.now())
-            result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API"})
+            response_body = fetch_dedupe_info_decode.get('body')
+            response_body_json = json.loads(response_body)
+            response_body_error = response_body_json.get('error')
+            response_body_error_description = response_body_json.get('error_description')
+            app_log_error = {"error": response_body_error, "error_description": response_body_error_description}
+            logger.error(f"{datetime.now()} - create_sanction - 190 - {app_log_error}")
+            result = fetch_dedupe_info_decode
 
-
-
-        # Fake API response from pdf file
-        # print('sanction dictionary', sanction_response)
-        # For Success
-        # sanction_response = sanction_response_success_data
-
-        # For Error
-        # sanction_response = sanction_response_error_data
-        # store_record_time = datetime.now()
-        #
-        # if(sanction_response['content']['status'] == 'SUCCESS'):
-        #     sanction_info = {
-        #         'dedupe_reference_id': str(sanction_dict['dedupeReferenceId']),
-        #         'customer_id': sanction_response['content']['customerId'],
-        #         'client_id': sanction_response['content']['clientId'],
-        #         'status': sanction_response['content']['status'],
-        #         'created_date': store_record_time,
-        #     }
-        #     print('sanction_info', sanction_info)
-        #     insert_query = sanction.insert().values(sanction_info)
-        #     print('query', insert_query)
-        #     dedupe_id = await database.execute(insert_query)
-        #     result = JSONResponse(status_code=200, content={"result": "testing"})
-        # else:
-        #     log_id = await insert_logs('MYSQL', 'DB', sanction_response['content']['status'], '500', sanction_response['content']['message'],
-        #                                datetime.now())
-        #     result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API"})
     except Exception as e:
-        log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', 'Error Occurred at DB level',
-                                   datetime.now())
+        logger.exception(f"{datetime.now()} - Issue with create_sanction function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
     return result
 

@@ -8,7 +8,7 @@ from dm_nac_service.data.database import insert_logs
 from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.resource.generics import response_to_dict
 from dm_nac_service.app_responses.disbursement import disbursement_request_success_response, disbursement_request_error_response1, disbursement_request_error_response2, disbursement_request_error_response3, disbursement_status_success_response1, disbursement_status_success_response2, disbursement_status_error_response1, disbursement_status_error_response2, disbursement_status_error_response3
-
+from dm_nac_service.resource.log_config import logger
 
 NAC_SERVER = 'northernarc-server'
 
@@ -38,9 +38,13 @@ async def nac_disbursement(context, data):
         #
         # disbursement_context_response_dict = response_to_dict(disbursement_context_response)
 
-        # Fake Success Response to test
-        disbursement_context_response_dict = disbursement_request_success_response
+        # Fake Success Response to test with disbursement reference id
         disbursement_context_response = disbursement_request_success_response
+        disbursement_context_response_dict = disbursement_request_success_response
+        # disbursement_context_response = {"status_code": 200, "body": disbursement_request_success_response}
+        # disbursement_context_response_dict = {"status_code": 200, "content": disbursement_request_success_response}
+        print('inside nac_disbursement', disbursement_context_response)
+
 
         # Fake Error Response1 to test
         # disbursement_context_response_dict = disbursement_request_error_response1
@@ -54,8 +58,6 @@ async def nac_disbursement(context, data):
         # disbursement_context_response_dict = disbursement_request_error_response3
 
 
-
-
         result = disbursement_context_response_dict
         print(
             '*********************************** SUCCESSFULLY POSTED DISBURSEMENT DATA TO NAC ENDPOINT  ***********************************', result)
@@ -63,7 +65,7 @@ async def nac_disbursement(context, data):
     except Exception as e:
         print(
             '*********************************** FAILED POSTING DISBURSEMENT DATA TO NAC ENDPOINT  ***********************************')
-        log_id = await insert_logs('GATEWAY', 'NAC', 'nac_disbursement', disbursement_context_response_dict.status_code, disbursement_context_response_dict.content, datetime.now())
+        logger.exception(f"{datetime.now()} - Issue with nac_disbursement function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
 
     return result

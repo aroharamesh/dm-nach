@@ -1,4 +1,7 @@
 import uvicorn
+# import logging
+# from logging.config import dictConfig
+# from dm_nac_service.resource.log_config import LogConfig
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +24,11 @@ from dm_nac_service.commons import get_env_or_fail
 
 origins = ["*"]
 
+# Adding the logger and log file
+# dictConfig(LogConfig().dict())
+# logger = logging.getLogger("dm-nac-service")
+# logfile_handler = logging.FileHandler("dm_nac_service/logs/server.log")
+# logger.addHandler(logfile_handler)
 
 app = FastAPI(title="DM-NAC",
               debug=True,

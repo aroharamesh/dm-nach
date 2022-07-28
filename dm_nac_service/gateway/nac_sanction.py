@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from dm_nac_service.data.database import insert_logs
 from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.resource.generics import response_to_dict
+from dm_nac_service.resource.log_config import logger
 import json
 
 NAC_SERVER = 'northernarc-server'
@@ -34,43 +35,30 @@ async def nac_sanction(context, data):
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
         }
-        # print('coming inside of nac_sanction', data)
-        # get_root = str_data.get('__root__')
-        # str_get_root = str(get_root)
         print('*********** printin sanction data to be posted', data)
         sanction_context_response = requests.post(url, json=data, headers=headers)
-        # print('printing sanction response status code', sanction_context_response.status_code)
-        # print('printing sanction response status code', sanction_context_response.content)
-        sanction_context_response_dict = response_to_dict(sanction_context_response)
-        log_id = await insert_logs(str_url, 'NAC', str(data), sanction_context_response.status_code,
-                                   sanction_context_response.content, datetime.now())
-        # print('byte stream to dict', sanction_context_response_dict)
+        if (sanction_context_response.status_code == 200):
+            log_id = await insert_logs(str_url, 'NAC', str(data), sanction_context_response.status_code,
+                                       sanction_context_response.content, datetime.now())
+            response_content = sanction_context_response.content
+            sanction_context_response_dict = response_to_dict(sanction_context_response)
+            res = json.loads(response_content.decode('utf-8'))
+            log_id = await insert_logs(str_url, 'NAC', str(data), sanction_context_response.status_code,
+                                       sanction_context_response.content, datetime.now())
+            result = JSONResponse(status_code=200, content=sanction_context_response_dict)
+        else:
+            sanction_context_response_dict = response_to_dict(sanction_context_response)
+            print('6 - Error in creating dedupe from NAC endpoint', sanction_context_response_dict)
+            log_id = await insert_logs(str_url, 'NAC', str(data), sanction_context_response.status_code,
+                                       sanction_context_response.content, datetime.now())
 
-        result = sanction_context_response_dict
+            result = JSONResponse(status_code=500, content=sanction_context_response_dict)
+        # result = sanction_context_response_dict
         print(
             '*********************************** SUCCESSFULLY POSTED SANCTION DATA TO NAC ENDPOINT  ***********************************')
-        #
-        # if(dedupe_context_response.status_code == 200):
-        #     print('200 ok')
-        #     response_content = dedupe_context_response.content
-        #     res = json.loads(response_content.decode('utf-8'))
-        #     print('pringu the res', res)
-        #     dedupe_context_response_id = res[0]['dedupeReferenceId']
-        #     print(dedupe_context_response_id)
-        #     # result = dedupe_context_response_id
-        #     result = res[0]
-        # else:
-        #     dedupe_context_dict = response_to_dict(dedupe_context_response)
-        #     log_id = await insert_logs('NAC', 'NAC', get_root, dedupe_context_response.status_code,
-        #                            dedupe_context_dict, datetime.now())
-        #     result = {"error": "Error Creating the Dedupe"}
     except Exception as e:
-        print(
-            '*********************************** FAILURE POSTING SANCTION DATA TO NAC ENDPOINT  ***********************************')
-        print(e.args[0])
-        log_id = await insert_logs(str_url, 'NAC', str(data), sanction_context_response.status_code,
-                                   sanction_context_response.content, datetime.now())
-        result = JSONResponse(status_code=500, content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
+        logger.exception(f"{datetime.now()} - Issue with nac_sanction function, {e.args[0]}")
+        result = JSONResponse(status_code=500,content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
 
     return result
 

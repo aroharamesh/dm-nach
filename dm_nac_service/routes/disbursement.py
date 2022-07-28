@@ -32,69 +32,28 @@ sanction
 router = APIRouter()
 
 
-# async def get_sanction_or_404(
-#     sanction_reference_id: int
-# ) -> DisbursementDB:
-#     database = get_database()
-#     # print('getting inside get_disbursement_or_404')
-#     select_query = disbursement.select().where(disbursement.c.sanction_reference_id == sanction_reference_id)
-#     # print('printing the sql query ', select_query)
-#     raw_disbursement = await database.fetch_one(select_query)
-#     # print(raw_disbursement)
-#
-#     if raw_disbursement is None:
-#         return None
-#
-#     return DisbursementDB(**raw_disbursement)
-
-
 @router.post("/find-customer-sanction", tags=["Sanction"])
 async def find_customer_sanction(
         loan_id
 ):
     try:
-        # print('selecting loan id')
         database = get_database()
         select_query = sanction.select().where(sanction.c.loan_id == loan_id).order_by(sanction.c.id.desc())
-        # print('loan query', select_query)
         raw_sanction = await database.fetch_one(select_query)
         sanction_dict = {
             "customerId": raw_sanction[1],
-            # "isEligible": raw_dedupe[18],
-            # "isEl1igible": "True",
-            # "dedupeRefId": raw_sanction[57],
             "sanctionRefId": raw_sanction[2]
         }
-        print( '*********************************** SUCCESSFULLY FETCHED CUSTOMER ID AND SANCTION REFERENCE ID FROM DB  ***********************************')
-        # result = raw_dedupe[1]
-        result = sanction_dict
-        if raw_sanction is None:
-            return None
-
-        # return DedupeDB(**raw_dedupe)
-    except Exception as e:
         print(
-            '*********************************** FAILURE FETCHING CUSTOMER ID AND SANCTION REFERENCE ID FROM DB  ***********************************')
-        log_id = await insert_logs('MYSQL', 'DB', 'find_customer_sanction', '500', {e.args[0]},
-                                   datetime.now())
-        result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
+            '*********************************** SUCCESSFULLY FETCHED SANCTION REFERENCE ID FROM DB  ***********************************')
+        result = JSONResponse(status_code=200, content=sanction_dict)
+    except Exception as e:
+        plogger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
+        print(
+            '*********************************** FAILURE FETCHING SANCTION REFERENCE ID FROM DB  ***********************************')
+        db_log_error = {"error": 'DB', "error_description": 'Dedupe Reference ID not found in DB'}
+        result = JSONResponse(status_code=500, content=db_log_error)
     return result
-
-
-async def get_disbursement_or_404(
-    disbursement_reference_id: int
-) -> DisbursementDB:
-    database = get_database()
-    # print('getting inside get_disbursement_or_404')
-    select_query = disbursement.select().where(disbursement.c.disbursement_reference_id == disbursement_reference_id)
-    # print('printing the sql query ', select_query)
-    raw_disbursement = await database.fetch_one(select_query)
-    # print(raw_disbursement)
-
-    if raw_disbursement is None:
-        return None
-
-    return DisbursementDB(**raw_disbursement)
 
 
 @router.post("/disbursement", tags=["Disbursement"])

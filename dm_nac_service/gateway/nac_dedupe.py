@@ -4,8 +4,9 @@ from dm_nac_service.resource.generics import response_to_dict
 from fastapi.responses import JSONResponse
 from dm_nac_service.data.database import insert_logs
 from dm_nac_service.commons import get_env_or_fail
-from fastapi.encoders import jsonable_encoder
+
 import json
+from dm_nac_service.resource.log_config import logger
 
 NAC_SERVER = 'northernarc-server'
 
@@ -55,8 +56,7 @@ async def nac_dedupe(context, data):
 
             result = JSONResponse(status_code=500, content=dedupe_context_dict)
     except Exception as e:
-        log_id = await insert_logs(str_url, 'NAC', str(get_root), {e.args[0]},
-                                   {e.args[0]}, datetime.now())
+        logger.exception(f"{datetime.now()} - Issue with nac_dedupe function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
     return result
 
