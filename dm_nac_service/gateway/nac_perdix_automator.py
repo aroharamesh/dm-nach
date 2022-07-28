@@ -149,9 +149,8 @@ async def perdix_update_loan(loan_data):
 
                 result = JSONResponse(status_code=200, content=loan_update_response_dict)
             else:
-                print(
-                    '*********************************** FAILED UPDATING LOAN INFO TO PERDIX ***********************************')
-                loan_update_unsuccess = {"error": 'Error from Perdix', "error_description": 'Error updating loan info in Perdix'}
+                logger.error(f"UNABLE TO UPDATE LOAN IN PERDIX - {loan_update_response_dict}")
+                loan_update_unsuccess = {"error": 'Error from Perdix', "error_description": loan_update_response_dict}
                 result = JSONResponse(status_code=500, content=loan_update_unsuccess)
         else:
             response_body = login_token_decode.get('body')

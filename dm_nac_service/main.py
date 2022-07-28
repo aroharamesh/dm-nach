@@ -12,6 +12,7 @@ from dm_nac_service.data.dedupe_model import dedupe_metadata
 from dm_nac_service.data.sanction_model import (sanction_metadata)
 from dm_nac_service.data.disbursement_model import disbursement_metadata
 from dm_nac_service.data.collect_model import collect_metadata
+from dm_nac_service.resource.log_config import logger
 
 # Router
 from dm_nac_service.data.logs_model import (logs_metadata)
@@ -76,6 +77,7 @@ async def startup():
 async def update_mandate_task() -> str:
     # update_mandate_status = await pending_mandate_status('fake-super-secret-token')
     # update_sanction_status = await update_sanction_in_db()
+    logger.info('Hello from logger')
     print("Hello World every 5 minutes")
     return "Hello World"
 

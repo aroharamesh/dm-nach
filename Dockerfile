@@ -7,6 +7,7 @@ WORKDIR /code
 #
 COPY ./requirements.txt /code/requirements.txt
 RUN mkdir -p ./static
+RUN mkdir -p ./logs
 
 #
 RUN  apk add build-base

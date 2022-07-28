@@ -14,6 +14,8 @@ from fastapi.exceptions import HTTPException
 
 from dm_nac_service.gateway.nac_disbursement import nac_disbursement, disbursement_get_status
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
+from dm_nac_service.resource.log_config import logger
+from dm_nac_service.resource.generics import handle_none, hanlde_response_body, hanlde_response_status
 
 from dm_nac_service.app_responses.disbursement import disbursement_request_success_response, disbursement_request_error_response1, disbursement_request_error_response2, disbursement_request_error_response3, disbursement_status_success_response1, disbursement_status_success_response2, disbursement_status_error_response1, disbursement_status_error_response2, disbursement_status_error_response3
 
@@ -48,7 +50,7 @@ async def find_customer_sanction(
             '*********************************** SUCCESSFULLY FETCHED SANCTION REFERENCE ID FROM DB  ***********************************')
         result = JSONResponse(status_code=200, content=sanction_dict)
     except Exception as e:
-        plogger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
+        logger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
         print(
             '*********************************** FAILURE FETCHING SANCTION REFERENCE ID FROM DB  ***********************************')
         db_log_error = {"error": 'DB', "error_description": 'Dedupe Reference ID not found in DB'}
@@ -68,54 +70,47 @@ async def create_disbursement(
 
         disbursement_data_dict = disbursement_data
         # print('printing the disbursment', disbursement_data)
-        sanction_reference_id = disbursement_data_dict['sanctionReferenceId']
+
 
         disbursement_response = await nac_disbursement('disbursement', disbursement_data_dict)
-        print('response from disburmsent info', disbursement_response)
+        print('BEFORE response from disburmsent info', disbursement_response)
+        disbursement_response_status = hanlde_response_status(disbursement_response)
+        disbursement_response_body = hanlde_response_body(disbursement_response)
 
-        disbursement_response_status = disbursement_response['content']['status']
-        disbursement_response_message = disbursement_response['content']['message']
-        store_record_time = datetime.now()
-        disbursement_info = {
-            'customer_id': disbursement_data_dict['customerId'],
-            'originator_id': disbursement_data_dict['originatorId'],
-            'sanction_reference_id': disbursement_data_dict['sanctionReferenceId'],
-            'requested_amount': disbursement_data_dict['requestedAmount'],
-            'ifsc_code': disbursement_data_dict['ifscCode'],
-            'branch_name': disbursement_data_dict['branchName'],
-            'processing_fees': disbursement_data_dict['processingFees'],
-            'insurance_amount': disbursement_data_dict['insuranceAmount'],
-            'disbursement_date': disbursement_data_dict['disbursementDate'],
-            'created_date': store_record_time,
-        }
-        disbursement_response_status = disbursement_response['content']['status']
-        if(disbursement_response_status == 'SUCCESS'):
+        disbursement_response_content_status = disbursement_response_body['content']['status']
+        disbursement_response_message = disbursement_response_body['content']['message']
+        logger.info(f"INSDIE CREATE DISBURSEMEN {disbursement_response_content_status} {disbursement_response_body}")
+        print('AFTER response from disburmsent info', disbursement_response_status)
+        if(disbursement_response_status == 200):
+            print('1 -AFTER AFTER response from disburmsent info')
+            # sanction_reference_id = disbursement_response_body['content']['value']['disbursementReferenceId']
+            store_record_time = datetime.now()
+            disbursement_info = {
+                'customer_id': disbursement_data_dict['customerId'],
+                'originator_id': disbursement_data_dict['originatorId'],
+                'sanction_reference_id': disbursement_data_dict['sanctionReferenceId'],
+                'requested_amount': disbursement_data_dict['requestedAmount'],
+                'ifsc_code': disbursement_data_dict['ifscCode'],
+                'branch_name': disbursement_data_dict['branchName'],
+                'processing_fees': disbursement_data_dict['processingFees'],
+                'insurance_amount': disbursement_data_dict['insuranceAmount'],
+                'disbursement_date': disbursement_data_dict['disbursementDate'],
+                'created_date': store_record_time,
+            }
+            print('2 -AFTER AFTER response from disburmsent info', disbursement_info)
             disbursement_info['message'] = disbursement_response_message
-            disbursement_info['status'] = disbursement_response_status
-            disbursement_info['disbursement_reference_id'] = disbursement_response['content']['value']['disbursementReferenceId']
+            disbursement_info['status'] = disbursement_response_content_status
+            disbursement_info['disbursement_reference_id'] = disbursement_response_body['content']['value']['disbursementReferenceId']
             insert_query = disbursement.insert().values(disbursement_info)
-            # print('query', insert_query)
             disbursement_id = await database.execute(insert_query)
-
+            result = JSONResponse(status_code=200, content=disbursement_response_body)
+            print('SUCCESSFULLY COMING OUT OF CREATE DISBURSEMENT ', result)
         else:
-            disbursement_info['message'] = disbursement_response_message
-            disbursement_info['status'] = disbursement_response_status
-
-        # get_sanction_from_db = await get_sanction_or_404(sanction_reference_id)
-        # print('get_disbursement_from_db', get_disbursement_from_db)
-
-        # if(get_sanction_from_db is None):
-        #     insert_query = disbursement.insert().values(disbursement_info)
-        #     # print('query', insert_query)
-        #     disbursement_id = await database.execute(insert_query)
-        # else:
-        #     result = JSONResponse(status_code=500, content={"message": f"{sanction_reference_id} is already present"})
-
-        result = disbursement_response
-        print('SUCCESSFULLY COMING OUT OF CREATE DISBURSEMENT ', result)
+            logger.info(f"FAILED INSDIE CREATE DISBURSEMEN {disbursement_response_content_status} {disbursement_response_message}")
+            result = JSONResponse(status_code=500, content=disbursement_response_body)
+            print('RESULT IN CREATE DISUB', result)
     except Exception as e:
-        log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', 'Error Occurred at DB level',
-                                   datetime.now())
+        logger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
     return result
 
