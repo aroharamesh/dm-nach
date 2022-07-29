@@ -12,10 +12,9 @@ from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert
 from dm_nac_service.gateway.nac_perdix_automator import perdix_post_login, perdix_fetch_loan, perdix_update_loan
 from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_get_sanction
 from dm_nac_service.routes.sanction import create_sanction, find_sanction, sanction_status, find_loan_id_from_sanction
-from dm_nac_service.resource.generics import handle_none, hanlde_response_body, hanlde_response_status
+from dm_nac_service.resource.generics import handle_none, hanlde_response_body, hanlde_response_status, fetch_data_from_db
 from dm_nac_service.data.sanction_model import sanction
 from dm_nac_service.commons import get_env_or_fail
-from dm_nac_service.app_responses.sanction import sanction_response_rejected_server, sanction_response_eligible, sanction_response_rejected_bureau, sanction_response_rejected_bre
 from dm_nac_service.routes.disbursement import find_customer_sanction, create_disbursement
 from dm_nac_service.gateway.nac_disbursement import nac_disbursement, disbursement_get_status
 from dm_nac_service.data.disbursement_model import (disbursement)
@@ -511,12 +510,6 @@ async def post_disbursement_automator_data(
 
 @router.post("/perdix/update-loan", tags=["Perdix"])
 async def update_loan(
-
-    # request_info: Request,
-    # response: Response
-
-    # For testing manually
-    # loan_info: dict = Body(...),
     url_type: str,
     loan_id: int,
     reference_id: str,
@@ -526,17 +519,8 @@ async def update_loan(
     remarks: str
 ):
     try:
-        # result = loan_info
-
-        #  For testing manually
-        # loan_update_response = await perdix_update_loan(loan_info)
-        # result = loan_update_response
-
         # For Real updating the loan information
         get_loan_info = await perdix_fetch_loan(loan_id)
-
-
-
         loan_response_decode_status = hanlde_response_status(get_loan_info)
         loan_response_decode_body = hanlde_response_body(get_loan_info)
         if(loan_response_decode_status == 200):
@@ -623,100 +607,100 @@ def document_upload(settings, url, document_info, image_id):
 @router.post("/sanction/update-sanction-in-db", tags=["Perdix"])
 async def update_sanction_in_db():
     try:
-        customer_array = []
         database = get_database()
-        query = sanction.select()
-        service_sanction_array = await database.fetch_all(query)
-        logger.info('GETTING CUSTOMER ID FROM DB')
-        array_length = len(service_sanction_array)
-        sanction_array = service_sanction_array
-
-        for i in sanction_array:
+        database_record_fetch = await fetch_data_from_db(sanction)
+        print('fetching recrods from db', database_record_fetch)
+        for i in database_record_fetch:
             customer_id = i[1]
             sm_loan_id = i[61]
-            # response_sanction_status = await nac_get_sanction('status', i[1])
-
-            # Rejected Scenario
-            # response_sanction_status = sanction_response_rejected_server
-
-            # Sanction Reference ID Scenario
-            response_sanction_status = sanction_response_eligible
-
-            # Sanction Reference ID Reject Reason
-            # response_sanction_status = sanction_response_rejected_bre
-
-            # Sanction Reference ID Scenario
-            # response_sanction_status = sanction_response_rejected_bureau
-
-            sanction_status = response_sanction_status['content']['status']
-
-            if(sanction_status == 'SUCCESS'):
-                print('inside SUCCESS')
-                sanction_status_value = response_sanction_status['content']['value']
-                sanction_status_value_status = response_sanction_status['content']['value']['status']
-                if(sanction_status_value_status == 'ELIGIBLE'):
-                    print('inside ELIGIBLE')
-                    sanction_status_value_reference_id = response_sanction_status['content']['value']['sanctionReferenceId']
-                    sanction_status_value_bureau_fetch = response_sanction_status['content']['value']['bureauFetchStatus']
-                    print('coming here', sanction_status_value_reference_id , sanction_status_value_bureau_fetch)
-                    query = sanction.update().where(sanction.c.customer_id == customer_id).values(
-                        status=sanction_status_value_status,
-                        # stage=sanction_status_value_stage,
-                        sanctin_ref_id=sanction_status_value_reference_id,
-                        bureau_fetch_status=sanction_status_value_bureau_fetch)
-                    sanction_updated = await database.execute(query)
-                    update_loan_info = await update_loan('SANCTION-REFERENCE', sm_loan_id, sanction_status_value_reference_id, 'Dedupe',
-                                                         sanction_status_value_bureau_fetch,
-                                                         'PROCEED', sanction_status_value_bureau_fetch)
-                elif(sanction_status_value_status == 'REJECTED'):
-                    print('inside REJECTED')
-                    sanction_status_value_stage = response_sanction_status['content']['value'][
-                        'stage']
-                    sanction_status_value_bureau_fetch = response_sanction_status['content']['value'][
-                        'bureauFetchStatus']
-                    if(sanction_status_value_stage == 'BUREAU_FETCH'):
-                        print('inside BUREAU_FETCH')
-
+            sanction_gt_response = await nac_get_sanction('sanction', customer_id)
+            print('response from sanction_gt_response', sanction_gt_response)
+            sanction_gt_response_status = hanlde_response_status(sanction_gt_response)
+            sanction_gt_response_body = hanlde_response_body(sanction_gt_response)
+            # sanction_status = response_sanction_status['content']['status']
+            if(sanction_gt_response_status == 200):
+                print('GETTING 200 RESPONSE FROM NAC ',sanction_gt_response_status, sanction_gt_response_body)
+                sanction_status = sanction_gt_response_body.get('content').get('status')
+                # sanction_status = response_sanction_status['content']['status']
+                if (sanction_status == 'SUCCESS'):
+                    print('inside SUCCESS')
+                    sanction_status_value = sanction_gt_response_body['content']['value']
+                    sanction_status_value_status = sanction_gt_response_body['content']['value']['status']
+                    if (sanction_status_value_status == 'ELIGIBLE'):
+                        print('inside ELIGIBLE')
+                        sanction_status_value_reference_id = sanction_gt_response_body['content']['value'][
+                            'sanctionReferenceId']
+                        sanction_status_value_bureau_fetch = sanction_gt_response_body['content']['value'][
+                            'bureauFetchStatus']
+                        print('coming here', sanction_status_value_reference_id, sanction_status_value_bureau_fetch)
                         query = sanction.update().where(sanction.c.customer_id == customer_id).values(
                             status=sanction_status_value_status,
-                            stage=sanction_status_value_stage,
+                            # stage=sanction_status_value_stage,
+                            sanctin_ref_id=sanction_status_value_reference_id,
                             bureau_fetch_status=sanction_status_value_bureau_fetch)
                         sanction_updated = await database.execute(query)
-                        update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
-                                                             'Rejected',
+                        update_loan_info = await update_loan('SANCTION-REFERENCE', sm_loan_id,
+                                                             sanction_status_value_reference_id, 'Dedupe',
                                                              sanction_status_value_bureau_fetch,
                                                              'PROCEED', sanction_status_value_bureau_fetch)
+                    elif (sanction_status_value_status == 'REJECTED'):
+                        print('inside REJECTED')
+                        sanction_status_value_stage = sanction_gt_response_body['content']['value'][
+                            'stage']
+                        sanction_status_value_bureau_fetch = sanction_gt_response_body['content']['value'][
+                            'bureauFetchStatus']
+                        if (sanction_status_value_stage == 'BUREAU_FETCH'):
+                            print('inside BUREAU_FETCH')
+
+                            query = sanction.update().where(sanction.c.customer_id == customer_id).values(
+                                status=sanction_status_value_status,
+                                stage=sanction_status_value_stage,
+                                bureau_fetch_status=sanction_status_value_bureau_fetch)
+                            sanction_updated = await database.execute(query)
+                            update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
+                                                                 'Rejected',
+                                                                 sanction_status_value_bureau_fetch,
+                                                                 'PROCEED', sanction_status_value_bureau_fetch)
+                        else:
+                            print('inside else BUREAU_FETCH')
+                            sanction_status_value_reject_reason = str(response_sanction_status['content']['value'][
+                                                                          'rejectReason'])
+                            print(sanction_status_value_reject_reason)
+                            query = sanction.update().where(sanction.c.customer_id == customer_id).values(
+                                status=sanction_status_value_status,
+                                stage=sanction_status_value_stage,
+                                reject_reason=sanction_status_value_reject_reason,
+                                bureau_fetch_status=sanction_status_value_bureau_fetch)
+                            sanction_updated = await database.execute(query)
+                            update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
+                                                                 'Rejected',
+                                                                 sanction_status_value_reject_reason,
+                                                                 'PROCEED', sanction_status_value_reject_reason)
                     else:
-                        print('inside else BUREAU_FETCH')
-                        sanction_status_value_reject_reason = str(response_sanction_status['content']['value'][
-                            'rejectReason'])
-                        print(sanction_status_value_reject_reason)
+                        print('inside else not eligible')
+                        sanction_status_value_stage = sanction_gt_response_body['content']['value'][
+                            'stage']
+                        sanction_status_value_bureau_fetch = sanction_gt_response_body['content']['value'][
+                            'bureauFetchStatus']
                         query = sanction.update().where(sanction.c.customer_id == customer_id).values(
                             status=sanction_status_value_status,
                             stage=sanction_status_value_stage,
-                            reject_reason=sanction_status_value_reject_reason,
+                            # reject_reason=rejectReason,
                             bureau_fetch_status=sanction_status_value_bureau_fetch)
                         sanction_updated = await database.execute(query)
                         update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
-                                                             'Rejected',
-                                                             sanction_status_value_reject_reason,
-                                                             'PROCEED', sanction_status_value_reject_reason)
+                                                             'Dedupe',
+                                                             sanction_status_value_bureau_fetch,
+                                                             'PROCEED', sanction_status_value_bureau_fetch)
                 else:
-                    print('inside else not eligible')
-                    sanction_status_value_stage = response_sanction_status['content']['value'][
-                        'stage']
-                    sanction_status_value_bureau_fetch = response_sanction_status['content']['value'][
-                        'bureauFetchStatus']
-                    query = sanction.update().where(sanction.c.customer_id == customer_id).values(status=sanction_status_value_status,
-                                                                                          stage=sanction_status_value_stage,
-                                                                                          # reject_reason=rejectReason,
-                                                                                          bureau_fetch_status=sanction_status_value_bureau_fetch)
-                    sanction_updated = await database.execute(query)
-                    update_loan_info = await update_loan('SANCTION', sm_loan_id, '',
-                                                         'Dedupe',
-                                                         sanction_status_value_bureau_fetch,
-                                                         'PROCEED', sanction_status_value_bureau_fetch)
-        return sanction_array
+                    logger.exception(f" Error from Northern Arc {sanction_gt_response_body}")
+                    result = JSONResponse(status_code=500, content=sanction_gt_response_body)
+
+            else:
+                logger.exception(f" Error from Northern Arc {sanction_gt_response_body}")
+                result = JSONResponse(status_code=500, content=sanction_gt_response_body)
+
+        return database_record_fetch
     except Exception as e:
         logger.exception(f"Issue with update_sanction_in_db function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at DB level - {e.args[0]}"})
@@ -726,85 +710,109 @@ async def update_sanction_in_db():
 async def update_disbursement_in_db():
     try:
         database = get_database()
-        print('coming inside update_disbursement_in_db ')
-        # query = sanction.select().where(and_(perdix_customer.c.pending.is_(True), perdix_customer.c.iterations<=iterations_count))
-        query = disbursement.select()
-        service_disbursement_array = await database.fetch_all(query)
-        print('get_pending_sanctions ', service_disbursement_array)
-        array_length = len(service_disbursement_array)
-        disbursement_array = service_disbursement_array
-        result = {"function": "update_disbursement_in_db"}
-        for i in disbursement_array:
-            # print(i[1])
+        database_record_fetch = await fetch_data_from_db(disbursement)
+        print('coming inside update_disbursement_in_db ', database_record_fetch)
+        for i in database_record_fetch:
             disbursement_ref_id = i[1]
             sanction_ref_id = i[8]
-            # query = sanction.select().where(sanction.c.sanctin_ref_id == sanction_ref_id)
-            # disbursement_sanction_id = await database.fetch_one(query)
-            disbursement_sanction_id = await find_loan_id_from_sanction(sanction_ref_id)
-            disb_sanc_data = disbursement_sanction_id
-            print('loan id from disbursement', disb_sanc_data.get('loanID'), sanction_ref_id)
-            sm_loan_id = disb_sanc_data.get('loanID')
-            # print('disbursement_ref_id ID is ', disbursement_ref_id)
-            get_disbursement_response = await disbursement_get_status('disbursement', disbursement_ref_id)
-            print('disbursement response ', get_disbursement_response)
-            get_disbursement_response_content = get_disbursement_response['content']
-            get_disbursement_response_status = get_disbursement_response['content']['status']
-            print('disbursement response status - ', get_disbursement_response_status)
-            if(get_disbursement_response_status == 'SUCCESS'):
-                get_disbursement_response_stage = get_disbursement_response['content']['value']['stage']
-                print('disbursement response stage -', get_disbursement_response_stage)
-                if(get_disbursement_response_stage == 'AMOUNT_DISBURSEMENT'):
-                    get_disbursement_response_utr = get_disbursement_response['content']['value']['utr']
-                    get_disbursement_response_disbursement_status = get_disbursement_response['content']['value']['disbursementStatus']
-                    query = disbursement.update().where(disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
-                        status=get_disbursement_response_status,
-                        stage=get_disbursement_response_stage,
-                        disbursement_status=get_disbursement_response_disbursement_status,
-                        message='',
-                        utr=get_disbursement_response_utr)
-                    disbursement_updated = await database.execute(query)
-                    update_loan_info = await update_loan('DISBURSEMENT-ITR', sm_loan_id,
-                                                         get_disbursement_response_utr, 'Dedupe',
-                                                         get_disbursement_response_disbursement_status,
-                                                         'PROCEED', get_disbursement_response_disbursement_status)
-                    print('disbursement response AMOUNT_DISBURSEMENT -', get_disbursement_response_utr, get_disbursement_response_disbursement_status)
-                else:
-                    get_disbursement_response_disbursement_status = get_disbursement_response['content']['value']['disbursementStatus']
-                    query = disbursement.update().where(
-                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
-                        status=get_disbursement_response_status,
-                        stage=get_disbursement_response_stage,
-                        disbursement_status=get_disbursement_response_disbursement_status,
-                        message='',
-                        utr='')
-                    disbursement_updated = await database.execute(query)
-                    print('disbursement response AMOUNT_DISBURSEMENT -', get_disbursement_response_disbursement_status)
-            else:
-                if("value" in get_disbursement_response_content):
+            customer_id = i[9]
+            print('passing customer id to sanction ', customer_id)
+            disbursement_sanction_id = await find_loan_id_from_sanction(customer_id)
+            disbursement_sanction_id_status = hanlde_response_status(disbursement_sanction_id)
+            disbursement_sanction_id_body = hanlde_response_body(disbursement_sanction_id)
+            if(disbursement_sanction_id_status == 200):
+                print('got the customer id from sanction', disbursement_sanction_id_body)
+                sm_loan_id = disbursement_sanction_id_body.get('loanID')
+                get_disbursement_response = await disbursement_get_status('disbursement', disbursement_ref_id)
+                get_disbursement_response_status = hanlde_response_status(get_disbursement_response)
+                get_disbursement_response_body = hanlde_response_body(get_disbursement_response)
+                if(get_disbursement_response_status == 200):
+                    print('SUCCESS 200 FROM ', get_disbursement_response_status, get_disbursement_response_body)
+                    get_disbursement_response_content = get_disbursement_response_body['content']
+                    get_disbursement_response_status = get_disbursement_response_body['content']['status']
+                    if (get_disbursement_response_status == 'SUCCESS'):
+                        print('SUCCSDFSKJSLF')
+                        get_disbursement_response_stage = get_disbursement_response_body['content']['value']['stage']
+                        print('disbursement response stage -', get_disbursement_response_stage)
+                        if (get_disbursement_response_stage == 'AMOUNT_DISBURSEMENT'):
+                            get_disbursement_response_utr = get_disbursement_response_body['content']['value']['utr']
+                            get_disbursement_response_disbursement_status = \
+                            get_disbursement_response_body['content']['value'][
+                                'disbursementStatus']
+                            query = disbursement.update().where(
+                                disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                                status=get_disbursement_response_status,
+                                stage=get_disbursement_response_stage,
+                                disbursement_status=get_disbursement_response_disbursement_status,
+                                message='',
+                                utr=get_disbursement_response_utr)
+                            disbursement_updated = await database.execute(query)
+                            update_loan_info = await update_loan('DISBURSEMENT-ITR', sm_loan_id,
+                                                                 get_disbursement_response_utr, 'Dedupe',
+                                                                 get_disbursement_response_disbursement_status,
+                                                                 'PROCEED',
+                                                                 get_disbursement_response_disbursement_status)
+                            print('disbursement response AMOUNT_DISBURSEMENT -', get_disbursement_response_utr,
+                                  get_disbursement_response_disbursement_status)
+                        else:
+                            get_disbursement_response_disbursement_status = get_disbursement_response_body['content']['value']['disbursementStatus']
+                            query = disbursement.update().where(
+                                disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                                status=get_disbursement_response_status,
+                                stage=get_disbursement_response_stage,
+                                disbursement_status=get_disbursement_response_disbursement_status,
+                                message='',
+                                utr='')
+                            disbursement_updated = await database.execute(query)
+                            print('disbursement response AMOUNT_DISBURSEMENT -',
+                                  get_disbursement_response_disbursement_status)
+                    else:
+                        if ("value" in get_disbursement_response_content):
 
-                    get_disbursement_response_stage = get_disbursement_response['content']['value']['stage']
-                    get_disbursement_response_value_status = get_disbursement_response['content']['value']['status']
-                    query = disbursement.update().where(
-                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
-                        status=get_disbursement_response_status,
-                        stage=get_disbursement_response_stage,
-                        disbursement_status=get_disbursement_response_value_status,
-                        message='',
-                        utr='')
-                    disbursement_updated = await database.execute(query)
-                    print('yes value is there', get_disbursement_response_stage, get_disbursement_response_value_status )
+                            get_disbursement_response_stage = get_disbursement_response_body['content']['value']['stage']
+                            get_disbursement_response_value_status = get_disbursement_response_body['content']['value'][
+                                'status']
+                            query = disbursement.update().where(
+                                disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                                status=get_disbursement_response_status,
+                                stage=get_disbursement_response_stage,
+                                disbursement_status=get_disbursement_response_value_status,
+                                message='',
+                                utr='')
+                            disbursement_updated = await database.execute(query)
+                            print('yes value is there', get_disbursement_response_stage,
+                                  get_disbursement_response_value_status)
+                            update_loan_info = await update_loan('DISBURSEMENT-ITR', sm_loan_id,
+                                                                 '', 'Rejected',
+                                                                 get_disbursement_response_stage,
+                                                                 'PROCEED',
+                                                                 get_disbursement_response_stage)
+                        else:
+                            get_disbursement_response_message = get_disbursement_response_body['content']['message']
+                            query = disbursement.update().where(
+                                disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
+                                status=get_disbursement_response_status,
+                                stage='',
+                                disbursement_status='',
+                                message=get_disbursement_response_message,
+                                utr='')
+                            disbursement_updated = await database.execute(query)
+                            print(' value is not there', get_disbursement_response_message)
+                            update_loan_info = await update_loan('DISBURSEMENT-ITR', sm_loan_id,
+                                                                 '', 'Rejected',
+                                                                 get_disbursement_response_stage,
+                                                                 'PROCEED',
+                                                                 get_disbursement_response_stage)
+                    result = database_record_fetch
                 else:
-                    get_disbursement_response_message = get_disbursement_response['content']['message']
-                    query = disbursement.update().where(
-                        disbursement.c.disbursement_reference_id == disbursement_ref_id).values(
-                        status=get_disbursement_response_status,
-                        stage='',
-                        disbursement_status='',
-                        message=get_disbursement_response_message,
-                        utr='')
-                    disbursement_updated = await database.execute(query)
-                    print(' value is not there', get_disbursement_response_message)
-        return disbursement_array
+                    logger.exception(f" Error from update_disbursement_in_db {get_disbursement_response_body}")
+                    result = JSONResponse(status_code=500, content=get_disbursement_response_body)
+            else:
+                logger.exception(f"NOT GOT the customer id from update_disbursement_in_db sanction {disbursement_sanction_id_body}")
+                result = JSONResponse(status_code=500, content=disbursement_sanction_id_body)
+                continue
+
     except Exception as e:
         logger.exception(f"Issue with update_sanction_in_db function, {e.args[0]}")
         result = JSONResponse(status_code=500, content={"message": f"Error Occurred at DB level - {e.args[0]}"})
+    return result

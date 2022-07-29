@@ -22,7 +22,7 @@ from dm_nac_service.app_responses.sanction import sanction_request_data, sanctio
 from dm_nac_service.data.dedupe_model import (
     dedupe
 )
-from dm_nac_service.resource.generics import response_to_dict
+from dm_nac_service.resource.generics import response_to_dict, hanlde_response_body, hanlde_response_status, handle_none
 from dm_nac_service.data.sanction_model import (
     SanctionDB,
     SanctionBase,
@@ -327,65 +327,45 @@ async def fileupload_sanction(
     return result
 
 
-
 @router.get("/sanction-status", tags=["Sanction"])
 async def sanction_status(
         customer_id: str, database: Database = Depends(get_database)
 ):
     try:
         get_sanction_response = await nac_get_sanction('status', customer_id)
-        print('RESPONSE GET SANCTION RESPONSE ', get_sanction_response)
-        status = get_sanction_response['content']['value']['status']
-        stage = get_sanction_response['content']['value']['stage']
-        # rejectReason = get_sanction_response.get('content').get('value')['rejectReason']
-        # rejectReason = get_sanction_response['content']['value']['rejectReason']
-        bureauFetchStatus = get_sanction_response['content']['value']['bureauFetchStatus']
-        # select_query = sanction.select().where(sanction.c.customer_id == customer_id)
-        # raw_get_customer = await database.fetch_one(select_query)
-        # if raw_get_customer is None:
-        #     return None
-        # else:
-        #     query = sanction.update().where(sanction.c.customer_id == customer_id).values(status=status,
-        #                                                                                          stage=stage,
-        #                                                                                          # reject_reason=rejectReason,
-        #                                                                                          bureau_fetch_status=bureauFetchStatus)
-        #     customer_updated = await database.execute(query)
-        #     return customer_updated
-        # print('get-sanction ', raw_get_customer)
-        result = get_sanction_response
+        get_sanction_response_status = hanlde_response_status(get_sanction_response)
+        get_sanction_response_body = hanlde_response_body(get_sanction_response)
+        if(get_sanction_response_status == 200):
+            print('FOUND CUSTOMER IN NAC', get_sanction_response_body)
+            result = JSONResponse(status_code=500, content=get_sanction_response_body)
+        else:
+            print('FOUND CUSTOMER IN NAC', get_sanction_response_body)
+            result = JSONResponse(status_code=500, content=get_sanction_response_body)
     except Exception as e:
+        logger.exception(f"{datetime.now()} - Issue with create_sanction function, {e.args[0]}")
         result = JSONResponse(status_code=500,
                               content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
-        print(e.args[0])
     return result
 
 
 async def find_loan_id_from_sanction(
-        sanction_ref_id
+        customer_id
 ):
     try:
-        # print('selecting loan id')
         database = get_database()
-        select_query = sanction.select().where(sanction.c.sanctin_ref_id == sanction_ref_id).order_by(sanction.c.id.desc())
-        # print('loan query', select_query)
+        select_query = sanction.select().where(sanction.c.customer_id == customer_id).order_by(sanction.c.id.desc())
+        print('raw_sanction', select_query)
         raw_sanction = await database.fetch_one(select_query)
+
         sanction_dict = {
-            # "customerId": raw_dedupe[1],
-            # "isEligible": raw_dedupe[18],
-            # "isEl1igible": "True",
             "loanID": raw_sanction[61]
         }
         print( '*********************************** SUCCESSFULLY FETCHED LOAN ID BY SANCTION REF ID FROM DB  ***********************************')
-        # result = raw_dedupe[1]
-        result = sanction_dict
-        # if raw_sanction is None:
-        #     return None
-
-        # return DedupeDB(**raw_dedupe)
+        result = JSONResponse(status_code=200, content=sanction_dict)
     except Exception as e:
+        logger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
         print(
-            '*********************************** FAILURE FETCHING LOAN ID BY SANCTION REF ID FROM DB  ***********************************')
-        log_id = await insert_logs('MYSQL', 'DB', 'find_dedupe', '500', {e.args[0]},
-                                   datetime.now())
-        result = JSONResponse(status_code=500, content={"message": f"Issue with fetching dedupe ref id from db, {e.args[0]}"})
+            '*********************************** FAILURE FETCHING SANCTION REFERENCE ID FROM DB  ***********************************')
+        db_log_error = {"error": 'DB', "error_description": 'Customer ID not found in DB'}
+        result = JSONResponse(status_code=500, content=db_log_error)
     return result

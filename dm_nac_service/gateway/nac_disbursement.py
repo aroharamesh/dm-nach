@@ -74,13 +74,11 @@ async def nac_disbursement(context, data):
 async def disbursement_get_status(context, disbursement_reference_id):
     """ Generic GET Method for Disbursement """
     try:
-        # print('coming inside of nac_disbursement_get_status', disbursement_reference_id)
         validate_url = get_env_or_fail(NAC_SERVER, 'base-url', NAC_SERVER + ' base-url not configured')
         api_key = get_env_or_fail(NAC_SERVER, 'api-key', NAC_SERVER + ' api-key not configured')
         group_key = get_env_or_fail(NAC_SERVER, 'group-key', NAC_SERVER + ' group-key not configured')
         originator_id = get_env_or_fail(NAC_SERVER, 'originator-id', NAC_SERVER + 'originator ID not configured')
         url = validate_url + f'/po/{context}/status/originatorId={originator_id}&disbursementReferenceId={disbursement_reference_id}'
-        # print('printng the url', url)
         str_url = str(url)
         headers = {
             "API-KEY": api_key,
@@ -94,17 +92,12 @@ async def disbursement_get_status(context, disbursement_reference_id):
         }
         disbursement_status_response = requests.get(url, headers=headers, )
         disbursement_status_response_dict = response_to_dict(disbursement_status_response)
-        # print('disbursement_status_response_dict', disbursement_status_response_dict)
-
-        # Fake Success Response1 to test
-        # disbursement_status_response_dict = disbursement_request_success_response
-
 
         # Fake Success Response1 to test PENNY_DROP AND IN_PROGRESS
         # disbursement_status_response_dict = disbursement_status_success_response1
 
         # Fake Success Response2 to test with UTR
-        disbursement_status_response_dict = disbursement_status_success_response2
+        # disbursement_status_response_dict = disbursement_status_success_response2
 
         # Fake Error Response1 to test INVALID DISBURSEMENT ID status and message
         # disbursement_status_response_dict = disbursement_status_error_response1
@@ -113,15 +106,22 @@ async def disbursement_get_status(context, disbursement_reference_id):
         # disbursement_status_response_dict = disbursement_status_error_response2
 
         # Fake Error Response3 to test AMOUNT_DISBURSEMENT AND FAILED
-        # disbursement_status_response_dict = disbursement_status_error_response3
+        disbursement_status_response_dict = disbursement_status_error_response3
 
-
-        # print('nac_disbursement_get_status', disbursement_context_response_dict)
-
-        result = disbursement_status_response_dict
+        if(disbursement_status_response == 200):
+            print('FOUND DISBURSEMENT STATUS')
+            logger.info(f"***** DISBURSEMENT STATUS FOUND ***** {disbursement_status_response_dict}")
+            log_id = await insert_logs(str_url, 'NAC', str(disbursement_reference_id), disbursement_status_response.status_code,
+                                       disbursement_status_response.content, datetime.now())
+            result = JSONResponse(status_code=200, content=disbursement_status_response_dict)
+        else:
+            logger.info(f"***** DISBURSEMENT STATUS NOT FOUND ***** {disbursement_status_response_dict}")
+            log_id = await insert_logs(str_url, 'NAC', str(disbursement_reference_id), disbursement_status_response.status_code,
+                                       disbursement_status_response.content, datetime.now())
+            result = JSONResponse(status_code=200, content=disbursement_status_response_dict)
     except Exception as e:
-        log_id = await insert_logs('GATEWAY', 'NAC', 'nac_disbursement', disbursement_status_response_dict.status_code,
-                                   disbursement_status_response_dict.content, datetime.now())
+        logger.info('***** PROBLEM IN FETCHING DISBURSEMENT STATUS *****')
+        logger.exception(f"{datetime.now()} - Issue with disbursement_get_status function, {e.args[0]}")
         result = JSONResponse(status_code=500,
                               content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
     return result

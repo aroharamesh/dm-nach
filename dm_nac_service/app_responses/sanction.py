@@ -60,14 +60,14 @@ sanction_response_error_data = {
 }
 
 
-sanction_response_not_found = {
+sanction_status_response_not_found = {
     "content": {
         "status": "ERROR",
         "value": "Customer ID not found"
     }
 }
 
-sanction_response_in_progress = {
+sanction_status_response_in_progress = {
     "content": {
         "status": "SUCCESS",
         "value": {
@@ -79,7 +79,7 @@ sanction_response_in_progress = {
 }
 
 
-sanction_response_eligible = {
+sanction_status_response_eligible = {
     "content": {
         "status": "SUCCESS",
         "value": {
@@ -91,7 +91,7 @@ sanction_response_eligible = {
 }
 
 
-sanction_response_rejected_bureau = {
+sanction_status_response_rejected_bureau = {
     "content": {
         "status": "SUCCESS",
         "value": {
@@ -103,7 +103,7 @@ sanction_response_rejected_bureau = {
 }
 
 
-sanction_response_rejected_bre = {
+sanction_status_response_rejected_bre = {
     "content": {
         "status": "SUCCESS",
         "value": {
@@ -116,7 +116,7 @@ sanction_response_rejected_bre = {
 }
 
 
-sanction_response_rejected_server = {
+sanction_status_response_rejected_server = {
     "content": {
         "status": "SUCCESS",
         "value": {
