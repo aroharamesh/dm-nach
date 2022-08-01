@@ -15,7 +15,8 @@ from fastapi.exceptions import HTTPException
 
 from dm_nac_service.commons import get_env_or_fail
 from dm_nac_service.data.database import get_database, sqlalchemy_engine, insert_logs
-from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_sanction_fileupload, nac_get_sanction
+from dm_nac_service.gateway.nac_sanction import nac_sanction, nac_sanction_fileupload, nac_get_sanction, upload_file_to_nac
+from dm_nac_service.gateway.nac_perdix_automator import download_file_from_stream
 from dm_nac_service.routes.dedupe import create_dedupe, find_dedupe
 from dm_nac_service.resource.log_config import logger
 from dm_nac_service.app_responses.sanction import sanction_request_data, sanction_response_success_data, sanction_response_error_data, sanction_file_upload_response1, sanction_file_upload_response2
@@ -190,6 +191,7 @@ async def create_sanction(
                     result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API"})
             else:
                 print('CUSTOMER NOT CREATED SUCCFULLY', sanction_response_decode)
+                result = JSONResponse(status_code=500, content=sanction_response_decode)
             print('5 - Response from NAC Sanction Endpoint', sanction_response)
 
         else:
@@ -203,49 +205,6 @@ async def create_sanction(
 
     except Exception as e:
         logger.exception(f"{datetime.now()} - Issue with create_sanction function, {e.args[0]}")
-        result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
-    return result
-
-
-@router.get("/deduperef", tags=["Sanction"])
-async def find_deduperef(
-    deduperef: str, database: Database = Depends(get_database)
-):
-    try:
-        print('coming inside of find_deduperef')
-        select_query = dedupe.select().where(dedupe.c.dedupe_reference_id == deduperef)
-        raw_dedupe_ref = await database.fetch_one(select_query)
-        print('dedupe ref ', raw_dedupe_ref)
-        for i in raw_dedupe_ref:
-            # if(i=='PANCARD'):
-            #     i = i + 1
-            #     pan_no = i
-            #     print(pan_no)
-            print(i)
-        sanction_tuple = raw_dedupe_ref
-        sanction_data = CreateSanction()
-        #
-        # testing = str(sanction_tuple[5])
-        # ldat = re.findall('\d+-.\d+-.\d+', testing)
-        # print('date in string', ldat[0])
-        prepare_sanction_data = sanction_data.dict()
-        prepare_sanction_data['mobile'] = sanction_tuple[3]
-        prepare_sanction_data['firstName'] = sanction_tuple[4]
-        prepare_sanction_data['pan'] = sanction_tuple[9]
-        prepare_sanction_data['idProofNumberFromPartner'] = sanction_tuple[9]
-        prepare_sanction_data['addressProofNumberFromPartner'] = sanction_tuple[7]
-        prepare_sanction_data['dedupeReferenceId'] = sanction_tuple[1]
-        prepare_sanction_data['primaryBankAccount'] = sanction_tuple[2]
-        prepare_sanction_data['dob'] = sanction_tuple[5]
-        prepare_sanction_data['currPincode'] = sanction_tuple[11]
-        prepare_sanction_data['permPincode'] = sanction_tuple[11]
-        prepare_sanction_data['loanId'] = sanction_tuple[10]
-        prepare_sanction_data['clientId'] = "5c1d8168-ef34-41ed-ab23-aab" + str(random.randint(10, 10000))
-        print('prepare_sanction_data - ', prepare_sanction_data)
-        result = prepare_sanction_data
-    except Exception as e:
-        log_id = await insert_logs('MYSQL', 'FUNCTION', 'FIND_DEDUPEREF', '500', {e.args[0]},
-                                   datetime.now())
         result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
     return result
 
@@ -369,3 +328,37 @@ async def find_loan_id_from_sanction(
         db_log_error = {"error": 'DB', "error_description": 'Customer ID not found in DB'}
         result = JSONResponse(status_code=500, content=db_log_error)
     return result
+
+
+@router.get("/download-upload-loan-document",  tags=["Sanction"])
+async def download_and_upload_file(customer_id, document_id):
+    try:
+        download_file_from_stream_response = await download_file_from_stream(document_id)
+        download_file_from_stream_response_status = hanlde_response_status(download_file_from_stream_response)
+        download_file_from_stream_response_body = hanlde_response_body(download_file_from_stream_response)
+        if(download_file_from_stream_response_status == 200):
+            print('printing heijdsljlsadfjljdsa', download_file_from_stream_response_status, download_file_from_stream_response_body)
+            file_to_upload = download_file_from_stream_response_body.get('filename')
+            print('BEFORE SNEDING ', file_to_upload)
+            upload_file = await upload_file_to_nac('uploadFile', file_to_upload, 'AADHAR_DOC', customer_id)
+            upload_file_status = hanlde_response_status(upload_file)
+            upload_file_body = hanlde_response_body(upload_file)
+            if(upload_file.status_code == 200):
+
+                print('SUCCESS UPLOADING ', upload_file)
+                # result = JSONResponse(status_code=200, content=download_file_from_stream_response)
+                result = JSONResponse(status_code=200, content=upload_file_body)
+            else:
+                print('FAILED UPLOADING ', upload_file)
+                result = JSONResponse(status_code=404, content=upload_file_body)
+        else:
+            logger.exception(f"{datetime.now()} - Issue with download_and_upload_file function  {download_file_from_stream_response_body}")
+            result = JSONResponse(status_code=404, content=download_file_from_stream_response_body)
+    except Exception as e:
+        logger.exception(f"{datetime.now()} - Issue with download_and_upload_file function, {e.args[0]}")
+        print('***** FAILURE DOWNLOADING FILE FROM PERDIX  *****')
+        db_log_error = {"error": 'DB', "error_description": 'Problem with NAC endpoint'}
+        result = JSONResponse(status_code=500, content=db_log_error)
+    return result
+
+

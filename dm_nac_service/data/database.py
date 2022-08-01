@@ -30,3 +30,17 @@ async def insert_logs(url, app_type, request_json, status_code, content, created
     insert_query = applogs.insert().values(log_info)
     log_id = await Database.execute(insert_query)
     return log_id
+
+
+async def insert_logs_all(url, request_type, app_type, request_json, status_code, content, created):
+    Database = get_database()
+    log_info = {'request': url,
+                'request_type': request_type,
+                'app_type': app_type,
+                'request_json': request_json,
+                'response_status': status_code,
+                'response_content': content,
+                'created_date': created}
+    insert_query = applogs.insert().values(log_info)
+    log_id = await Database.execute(insert_query)
+    return log_id

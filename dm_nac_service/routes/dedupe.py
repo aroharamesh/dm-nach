@@ -152,8 +152,7 @@ async def create_dedupe(
         else:
             print('7b - failure generated dedupe ref id', )
             logger.exception(f"{datetime.now()} - Issue with create_dedupe function, {str(response_body_json)}")
-            result = response_body_json
-            print('error from create dedupe', result)
+            result = JSONResponse(status_code=500, content=response_body_json)
 
     except Exception as e:
         logger.exception(f"{datetime.now()} - Issue with create_dedupe function, {e.args[0]}")

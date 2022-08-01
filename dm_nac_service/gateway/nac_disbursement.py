@@ -36,10 +36,10 @@ async def nac_disbursement(context, data):
         disbursement_context_response_dict = response_to_dict(disbursement_context_response)
 
         # Fake Success Response to test with disbursement reference id
-        disbursement_context_response_dict = disbursement_request_success_response
+        # disbursement_context_response_dict = disbursement_request_success_response
 
         # Fake Error Response1 to test
-        # disbursement_context_response_dict = disbursement_request_error_response1
+        disbursement_context_response_dict = disbursement_request_error_response1
 
         # Fake Error Response2 to test
         # disbursement_context_response_dict = disbursement_request_error_response2
@@ -58,7 +58,7 @@ async def nac_disbursement(context, data):
                 logger.info(f"***** FAILED RESPONSE FROM DISBURSEMENT DATA TO NAC ENDPOINT ***** {disbursement_context_response_dict}")
                 log_id = await insert_logs(str_url, 'NAC', str(data), disbursement_context_response.status_code,
                                            disbursement_context_response.content, datetime.now())
-                result = JSONResponse(status_code=200, content=disbursement_context_response_dict)
+                result = JSONResponse(status_code=500, content=disbursement_context_response_dict)
         else:
             log_id = await insert_logs(str_url, 'NAC', str(data), disbursement_context_response.status_code,
                                        disbursement_context_response.content, datetime.now())
@@ -97,7 +97,7 @@ async def disbursement_get_status(context, disbursement_reference_id):
         # disbursement_status_response_dict = disbursement_status_success_response1
 
         # Fake Success Response2 to test with UTR
-        # disbursement_status_response_dict = disbursement_status_success_response2
+        disbursement_status_response_dict = disbursement_status_success_response2
 
         # Fake Error Response1 to test INVALID DISBURSEMENT ID status and message
         # disbursement_status_response_dict = disbursement_status_error_response1
@@ -106,7 +106,7 @@ async def disbursement_get_status(context, disbursement_reference_id):
         # disbursement_status_response_dict = disbursement_status_error_response2
 
         # Fake Error Response3 to test AMOUNT_DISBURSEMENT AND FAILED
-        disbursement_status_response_dict = disbursement_status_error_response3
+        # disbursement_status_response_dict = disbursement_status_error_response3
 
         if(disbursement_status_response == 200):
             print('FOUND DISBURSEMENT STATUS')

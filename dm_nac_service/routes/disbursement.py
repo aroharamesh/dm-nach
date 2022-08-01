@@ -80,7 +80,7 @@ async def create_disbursement(
         disbursement_response_content_status = disbursement_response_body['content']['status']
         disbursement_response_message = disbursement_response_body['content']['message']
         logger.info(f"INSDIE CREATE DISBURSEMEN {disbursement_response_content_status} {disbursement_response_body}")
-        print('AFTER response from disburmsent info', disbursement_response_status)
+        print('AFTER response from disburmsent info', disbursement_response_body)
         if(disbursement_response_status == 200):
             print('1 -AFTER AFTER response from disburmsent info')
             # sanction_reference_id = disbursement_response_body['content']['value']['disbursementReferenceId']
@@ -111,75 +111,5 @@ async def create_disbursement(
             print('RESULT IN CREATE DISUB', result)
     except Exception as e:
         logger.exception(f"{datetime.now()} - Issue with find_dedupe function, {e.args[0]}")
-        result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
-    return result
-
-
-@router.get("/disbursement-status", tags=["Disbursement"])
-async def get_disbursement_status(
-    disbursement_reference_id, database: Database = Depends(get_database)
-):
-    try:
-        print('coming inside of disbursement status', disbursement_reference_id)
-        # get_disbursement_from_db = await get_disbursement_or_404(disbursement_reference_id)
-
-        # print('printing get_disbursement_from_db', get_disbursement_from_db)
-        disbursement_status_response = await disbursement_get_status('disbursement', disbursement_reference_id)
-        # if(get_disbursement_from_db is not None):
-        #     print('get_disbursement_from_db')
-        #     disbursement_status_response_error = disbursement_status_response.get('error')
-        #     if(not disbursement_status_response_error):
-        #         print('disbursement_status_response_error')
-        #         disbursement_status_response_status = disbursement_status_response['content']['status']
-        #         if(disbursement_status_response_status=='SUCCESS'):
-        #             print('disbursement_status_response_status')
-        #             disbursement_status_response_stage = disbursement_status_response['content']['value']['stage']
-        #             disbursement_status_response_dis_status = disbursement_status_response['content']['value']['disbursementStatus']
-        #             disbursement_status_response_utr = disbursement_status_response.get('content').get('value').get('utr')
-        #             if(not disbursement_status_response_utr):
-        #                 query = disbursement.update().where(disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-        #                                                                                                      disbursement_status=disbursement_status_response_dis_status,
-        #                                                                                                      stage=disbursement_status_response_stage,
-        #                                                                                                     status="",
-        #                                                                                                     message="")
-        #                 customer_updated = await database.execute(query)
-        #             else:
-        #                 query = disbursement.update().where(
-        #                     disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-        #                     utr=disbursement_status_response_utr,
-        #                     disbursement_status=disbursement_status_response_dis_status,
-        #                     stage=disbursement_status_response_stage)
-        #                 customer_updated = await database.execute(query)
-        #         else:
-        #             print('else disbursement_status_response_status error')
-        #             disbursement_status_response_message = disbursement_status_response.get('content').get('message')
-        #             if(not disbursement_status_response_message):
-        #                 print('not disbursement_status_response_message')
-        #                 disbursement_status_response_stage = disbursement_status_response.get('content').get('value').get('stage')
-        #                 disbursement_status_response_status = disbursement_status_response.get('content').get('value').get('status')
-        #                 query = disbursement.update().where(
-        #                     disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-        #                     stage=disbursement_status_response_stage,
-        #                 disbursement_status =disbursement_status_response_status)
-        #                 customer_updated = await database.execute(query)
-        #             else:
-        #                 print('message not found')
-        #     else:
-        #
-        #         disbursement_status_response_status = disbursement_status_response['status']
-        #         disbursement_status_response_message = disbursement_status_response['error']
-        #         query = disbursement.update().where(
-        #             disbursement.c.disbursement_reference_id == disbursement_reference_id).values(
-        #             message=disbursement_status_response_message,
-        #             status=disbursement_status_response_status)
-        #         customer_updated = await database.execute(query)
-
-
-        # print('get_disbursement_status ', get_disbursement_status)
-
-        result = disbursement_status_response
-    except Exception as e:
-        log_id = await insert_logs('MYSQL', 'DB', 'NA', '500', 'Error Occurred at DB level',
-                                   datetime.now())
         result = JSONResponse(status_code=500, content={"message": f"Issue with Northern Arc API, {e.args[0]}"})
     return result

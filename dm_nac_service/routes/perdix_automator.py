@@ -94,7 +94,7 @@ async def post_automator_data(
         dedupe_response = await create_dedupe(dedupe_data)
         print('12 - coming back to automator function', dedupe_response)
         dedupe_response_status = hanlde_response_status(dedupe_response)
-        dedupe_response_body = hanlde_response_status(dedupe_response)
+        dedupe_response_body = hanlde_response_body(dedupe_response)
         if(dedupe_response_status == 200):
             print('12a Success - response from create dedupe')
             dedupe_data_respose = hanlde_response_body(dedupe_response)
@@ -104,7 +104,7 @@ async def post_automator_data(
             if (is_dedupe_present == False):
 
                 message_remarks = ''
-                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Screening',
+                update_loan_info = await update_loan('DEDUPE', sm_loan_id, str_fetch_dedupe_info, 'Dedupe',
                                                          message_remarks,
                                                          'PROCEED', message_remarks)
                 if(update_loan_info.status_code == 200):
@@ -153,9 +153,23 @@ async def post_automator_data(
             result = payload
 
         else:
-            print('12a Failure - response from create dedupe', dedupe_response_body)
+            dedupe_response_body_message = dedupe_response_body.get('message')
+            print('12a Failure - response from create dedupe', dedupe_response_body_message)
+            update_loan_info = await update_loan('DEDUPE', sm_loan_id, '', 'Rejected',
+                                                 str(dedupe_response_body_message),
+                                                 'PROCEED', str(dedupe_response_body_message))
+            if (update_loan_info.status_code == 200):
+                print('14a - updated loan information with dedupe reference to Perdix', update_loan_info)
+                payload['partnerHandoffIntegration']['status'] = 'FAILURE'
+                payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
+            else:
+                perdix_update_unsuccess = hanlde_response_body(update_loan_info)
+                result = JSONResponse(status_code=500, content=perdix_update_unsuccess)
+                payload['partnerHandoffIntegration']['status'] = 'FAILURE'
+                payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
+            print('14c - updated loan information with dedupe reference to Perdix', update_loan_info)
             logger.error(f"{datetime.now()} - post_automator_data - 150 - {dedupe_response_body}")
-            result = dedupe_response_body
+            result = payload
 
     except Exception as e:
         logger.exception(f"{datetime.now()} - Issue with post_automator_data function, {e.args[0]}")
@@ -364,8 +378,8 @@ async def post_sanction_automator_data(
         sanction_response = await create_sanction(sanction_data)
         sanction_response_status = hanlde_response_status(sanction_response)
         sanction_response_body = hanlde_response_body(sanction_response)
-        logger.ex
 
+        print(f"------------{sanction_response_body}")
         if(sanction_response_status == 200):
 
             get_sanction_ref = await find_sanction(sm_loan_id)
@@ -398,6 +412,12 @@ async def post_sanction_automator_data(
                 payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
                 result = payload
         else:
+            # sanction_response_body_json = json.loads(sanction_response_body)
+            sanction_response_get_body = sanction_response_body.get('body')
+            sanction_response_get_body_json = json.loads(sanction_response_get_body)
+            sanction_response_get_body_value = sanction_response_get_body_json.get('content').get('value')
+            update_loan_info = await update_loan('SANCTION', sm_loan_id, '', 'Rejected', str(sanction_response_get_body_value),
+                                                 'PROCEED', str(sanction_response_get_body_value))
             logger.error(f"{datetime.now()} - post_sanction_automator_data - 452 - {sanction_response_body}")
             result = JSONResponse(status_code=500, content=sanction_response_body)
             payload['partnerHandoffIntegration']['status'] = 'FAILURE'
@@ -495,8 +515,27 @@ async def post_disbursement_automator_data(
 
                 result = payload
             else:
-                print('5b - Response from NAC disbursement endpoint', nac_disbursement_response_body)
+                payload['partnerHandoffIntegration']['status'] = 'FAILURE'
+                payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
+                nac_disbursement_response_body_message = nac_disbursement_response_body.get('content').get('message')
+                print('5b - Response from NAC disbursement endpoint', nac_disbursement_response_body.get('content').get('message'))
                 logger.error(f"{datetime.now()} - Issue with post_disbursement_automator_data function")
+                update_loan_info = await update_loan('DISBURSEMENT', sm_loan_id, '', 'Rejected',
+                                                     nac_disbursement_response_body_message,
+                                                     'PROCEED', nac_disbursement_response_body_message)
+                update_loan_info_status = hanlde_response_status(update_loan_info)
+                if (update_loan_info_status == 200):
+
+                    payload['partnerHandoffIntegration']['status'] = 'FAILURE'
+                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
+                    result = payload
+                else:
+                    loan_update_error = hanlde_response_body(update_loan_info)
+                    logger.error(f"{datetime.now()} - post_sanction_automator_data - 426 - {loan_update_error}")
+                    result = JSONResponse(status_code=500, content=loan_update_error)
+                    payload['partnerHandoffIntegration']['status'] = 'FAILURE'
+                    payload['partnerHandoffIntegration']['partnerReferenceKey'] = ''
+                    result = payload
                 result = JSONResponse(status_code=500, content={"message": f"Issue with post_disbursement_automator_data function"})
         else:
             print('PRITING SANCTION FAILURE ')
@@ -523,9 +562,12 @@ async def update_loan(
         get_loan_info = await perdix_fetch_loan(loan_id)
         loan_response_decode_status = hanlde_response_status(get_loan_info)
         loan_response_decode_body = hanlde_response_body(get_loan_info)
+        ('printing loan info ', loan_response_decode_body)
         if(loan_response_decode_status == 200):
+
             get_loan_info = loan_response_decode_body
-            json_data_version = get_loan_info.get('version')
+            ('printing loan info ', get_loan_info)
+            # json_data_version = get_loan_info.get('version')
 
             if "rejectReason" in get_loan_info:
                 get_loan_info['rejectReason'] = reject_reason
@@ -536,7 +578,6 @@ async def update_loan(
                 get_loan_info['loanProcessAction'] = "Testing loanProcessAction"
             if "accountUserDefinedFields" in get_loan_info:
                 if (url_type == 'DEDUPE'):
-                    print('inside update loan ', reference_id)
                     get_loan_info['accountUserDefinedFields']['userDefinedFieldValues']['udf41'] = reference_id
 
                 if (url_type == 'SANCTION'):
@@ -565,8 +606,10 @@ async def update_loan(
                     "remarks": remarks,
                     "rejectReason": ''
                 }
+
+            # Below is for loan Id 317
             prepare_loan_info['loanAccount']['tenure'] = 24
-            prepare_loan_info['loanAccount']['loanAmount'] = 20000
+            # prepare_loan_info['loanAccount']['loanAmount'] = 20000
             print('before updateing perdix loan', prepare_loan_info)
             update_perdix_loan = await perdix_update_loan(prepare_loan_info)
             perdix_update_loan_response_decode_status = hanlde_response_status(update_perdix_loan)

@@ -84,7 +84,7 @@ sanction_status_response_eligible = {
         "status": "SUCCESS",
         "value": {
             "status": "ELIGIBLE",
-            "sanctionReferenceId": 12345,
+            "sanctionReferenceId": 354342,
             "bureauFetchStatus": "COMPLETED"
         }
     }

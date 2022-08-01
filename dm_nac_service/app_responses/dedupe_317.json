@@ -76,7 +76,7 @@
                     "id": "ISO"
                 }
             },
-            "loanAmount": 50000,
+            "loanAmount": 20000,
             "frequency": "M",
             "tenure": "24",
             "tenureInYears": null,
@@ -525,7 +525,7 @@
                         }
                     },
                     "actualDisbursementDate": null,
-                    "disbursementAmount": 50000.00,
+                    "disbursementAmount": 20000.00,
                     "disbursedAmount": null,
                     "customerSignatureDate": {
                         "year": 2021,

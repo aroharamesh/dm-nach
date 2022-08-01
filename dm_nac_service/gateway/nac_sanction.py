@@ -1,5 +1,6 @@
-from datetime import datetime
+import os
 import requests
+from datetime import datetime
 import time
 from dm_nac_service.resource.generics import response_to_dict
 from fastapi.responses import JSONResponse
@@ -125,3 +126,51 @@ async def nac_get_sanction(context, customer_id):
         result = JSONResponse(status_code=500,
                               content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
     return result
+
+
+async def upload_file_to_nac(context, file_name, file_type, customer_id):
+    try:
+        validate_url = get_env_or_fail(NAC_SERVER, 'base-url', NAC_SERVER + ' base-url not configured')
+        api_key = get_env_or_fail(NAC_SERVER, 'api-key', NAC_SERVER + ' api-key not configured')
+        group_key = get_env_or_fail(NAC_SERVER, 'group-key', NAC_SERVER + ' group-key not configured')
+        originator_id = get_env_or_fail(NAC_SERVER, 'originator-id', NAC_SERVER + 'originator ID not configured')
+        url = validate_url + f'/po/{context}?originatorId={originator_id}&fileType={file_type}&customerId={customer_id}'
+        str_url = str(url)
+        headers = {
+            "API-KEY": api_key,
+            "GROUP-KEY": group_key,
+            "Content-Type": "application/json",
+            "Content-Length": "0",
+            "User-Agent": 'My User Agent 1.0',
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "accept": "*/*"
+        }
+        file_path = os.path.abspath(('./static/'))
+        file_to_upload = file_path + '/' + file_name
+        print('file_to_upload', file_to_upload)
+        files = {'upload_file': open(file_to_upload, 'rb')}
+        upload_file = requests.post(url, headers, files=files)
+        if(upload_file.status_code == 200):
+            print('UPLOAD FILE RESPONSE ', upload_file.status_code, upload_file.content)
+            upload_file_message = json.loads(upload_file.content.decode('utf-8'))
+            result = JSONResponse(status_code=200, content={"message": file_name})
+            print('PRINTING FROM upload_file_to_nac', result)
+            result = JSONResponse(status_code=200, content=upload_file_message)
+        else:
+            upload_file_message = upload_file.content.decode('utf-8')
+            print('UPLOAD FILE RESPONSE ', upload_file.status_code, upload_file.content)
+            result = JSONResponse(status_code=500, content=upload_file_message)
+    except Exception as e:
+        logger.exception(f"{datetime.now()} - Issue with upload_file_to_nac function, {e.args[0]}")
+        result = JSONResponse(status_code=500,
+                              content={"message": f"Error Occurred at Northern Arc Post Method - {e.args[0]}"})
+    return result
+
+
+# curl --location --request POST 'https://stage.northernarc.com/nimbus-services/api/po/uploadFile?originatorId=U65100TN2018PTC124844&fileType=AADHAR_DOC&customerId=5172285289535863' \
+# --header 'accept: */*' \
+# --header 'GROUP-KEY: 5369155212050775' \
+# --header 'API-KEY: aec33b5b9d24c7959623867150691db1fdb574a2bdd2a6e014eb55bee2d0f176' \
+# --form 'file=@"/Users/arohatech/DVARA/AROHA/dm-nac-service/static/94d150e4-6232-4f5e-a341-494d76c5c4bf.pdf"'
