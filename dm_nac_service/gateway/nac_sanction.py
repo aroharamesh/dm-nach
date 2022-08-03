@@ -150,8 +150,9 @@ async def upload_file_to_nac(context, file_name, file_type, customer_id):
         file_path = os.path.abspath(('./static/'))
         file_to_upload = file_path + '/' + file_name
         print('file_to_upload', file_to_upload)
-        files = {'upload_file': open(file_to_upload, 'rb')}
-        upload_file = requests.post(url, headers, files=files)
+        # file = {'file': open(file_to_upload, 'rb')}
+        file = {}
+        upload_file = requests.post(url, headers, files=file)
         if(upload_file.status_code == 200):
             print('UPLOAD FILE RESPONSE ', upload_file.status_code, upload_file.content)
             upload_file_message = json.loads(upload_file.content.decode('utf-8'))
@@ -174,3 +175,10 @@ async def upload_file_to_nac(context, file_name, file_type, customer_id):
 # --header 'GROUP-KEY: 5369155212050775' \
 # --header 'API-KEY: aec33b5b9d24c7959623867150691db1fdb574a2bdd2a6e014eb55bee2d0f176' \
 # --form 'file=@"/Users/arohatech/DVARA/AROHA/dm-nac-service/static/94d150e4-6232-4f5e-a341-494d76c5c4bf.pdf"'
+
+#
+# curl --location --request POST 'https://stage.northernarc.com/nimbus-services/api/po/uploadFile?originatorId=U65100TN2018PTC124844&fileType=AADHAR_DOC&customerId=5172285289535863' \
+# --header 'accept: */*' \
+# --header 'GROUP-KEY: 5369155212050775' \
+# --header 'API-KEY: aec33b5b9d24c7959623867150691db1fdb574a2bdd2a6e014eb55bee2d0f176' \
+# --form 'file=@"/var/snap/amazon-ssm-agent/5656/94d150e4-6232-4f5e-a341-494d76c5c4bf.pdf"'
